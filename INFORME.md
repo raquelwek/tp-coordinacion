@@ -53,3 +53,12 @@ Para poder distinguir entre clientes, es necesario  tener un identificador únic
 
 ### Componente `Sum`
 Para lograr que cada componente de Sum notificque a los agregators  correspondientes que ya no enviará más data para un cliente específico, es necesario hacer que los componentes de Sum reciban la notifciación del EOF que solamente un componente recibió, esta información se propagará por una cola con mensajes de control de manera que todas las instancias que no recibieron dicho mensaje queden notificadas y puedan enviar esta información al resto de compoenentes que pudieron no haberlo recibido. Esto último es necesario ya que se la información de rutea a un agregator especifico
+
+# Implementación
+
+## Discriminación de mensajes según cliente
+Para manejar múltiples clientes de forma concurrente, es necesario agregar un `client_id` para identificar la información que cada uno envía, 
+esto lo agregamos en `messageHandler` para que al serializar y desserializar los mensajes de **EOF y DATA** se tengan en cuenta. Para no modificar el gateway
+lo que hacemos es mantener un contador atómico global que se utilice a medida que se inicialice un nuevo hanlder poder asegurar un id único por cliente.
+
+Des

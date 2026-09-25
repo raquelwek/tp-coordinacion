@@ -20,15 +20,19 @@ func deserializeJson(message []byte) ([]interface{}, error) {
 	return data, nil
 }
 
-func SerializeMessage(fruitRecords []fruititem.FruitItem) (*middleware.Message, error) {
-	data := []interface{}{}
+// SerializeMessage serializes a message with format: [clientId, [[fruit, amount], ...]]
+// An empty fruitRecords slice is used to signal EOF.
+func SerializeMessage(clientId string, fruitRecords []fruititem.FruitItem) (*middleware.Message, error) {
+	records := []interface{}{}
 	for _, fruitRecord := range fruitRecords {
 		datum := []interface{}{
 			fruitRecord.Fruit,
 			fruitRecord.Amount,
 		}
-		data = append(data, datum)
+		records = append(records, datum)
 	}
+
+	data := []interface{}{clientId, records}
 
 	body, err := serializeJson(data)
 	if err != nil {
@@ -39,32 +43,47 @@ func SerializeMessage(fruitRecords []fruititem.FruitItem) (*middleware.Message, 
 	return &message, nil
 }
 
-func DeserializeMessage(message *middleware.Message) ([]fruititem.FruitItem, bool, error) {
+// DeserializeMessage deserializes a message returning the clientId, fruit records, whether it's an EOF, and any error.
+func DeserializeMessage(message *middleware.Message) (string, []fruititem.FruitItem, bool, error) {
 	data, err := deserializeJson([]byte((*message).Body))
 	if err != nil {
-		return nil, false, err
+		return "", nil, false, err
+	}
+
+	if len(data) != 2 {
+		return "", nil, false, errors.New("Message does not have expected [clientId, records] format")
+	}
+
+	clientId, ok := data[0].(string)
+	if !ok {
+		return "", nil, false, errors.New("clientId is not a string")
+	}
+
+	records, ok := data[1].([]interface{})
+	if !ok {
+		return "", nil, false, errors.New("records is not an array")
 	}
 
 	fruitRecords := []fruititem.FruitItem{}
-	for _, datum := range data {
-		fruitPair, ok := datum.([]interface{})
+	for _, record := range records {
+		fruitPair, ok := record.([]interface{})
 		if !ok {
-			return nil, false, errors.New("Datum is not an array")
+			return "", nil, false, errors.New("Datum is not an array")
 		}
 
 		fruit, ok := fruitPair[0].(string)
 		if !ok {
-			return nil, false, errors.New("Datum is not a (fruit, amount) pair")
+			return "", nil, false, errors.New("Datum is not a (fruit, amount) pair")
 		}
 
 		fruitAmount, ok := fruitPair[1].(float64)
 		if !ok {
-			return nil, false, errors.New("Datum is not a (fruit, amount) pair")
+			return "", nil, false, errors.New("Datum is not a (fruit, amount) pair")
 		}
 
 		fruitRecord := fruititem.FruitItem{Fruit: fruit, Amount: uint32(fruitAmount)}
 		fruitRecords = append(fruitRecords, fruitRecord)
 	}
 
-	return fruitRecords, len(fruitRecords) == 0, nil
+	return clientId, fruitRecords, len(fruitRecords) == 0, nil
 }
