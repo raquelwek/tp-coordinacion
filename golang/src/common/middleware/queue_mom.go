@@ -40,3 +40,7 @@ func (qm *QueueMiddleware) Send(msg Message) error {
 
 	return nil
 }
+
+func (qm *QueueMiddleware) SendToKey(msg Message, key string) error {
+	return qm.Send(msg)
+}

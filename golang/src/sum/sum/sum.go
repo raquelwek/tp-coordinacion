@@ -2,6 +2,7 @@ package sum
 
 import (
 	"fmt"
+	"hash/fnv"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -27,7 +28,9 @@ type Sum struct {
 	inputQueue     middleware.Middleware
 	outputExchange middleware.Middleware
 	// fruitItemMap is keyed by clientId -> fruit -> FruitItem
-	fruitItemMap map[string]map[string]fruititem.FruitItem
+	fruitItemMap      map[string]map[string]fruititem.FruitItem
+	aggregationAmount int
+	aggregationPrefix string
 }
 
 func NewSum(config SumConfig) (*Sum, error) {
@@ -50,9 +53,11 @@ func NewSum(config SumConfig) (*Sum, error) {
 	}
 
 	return &Sum{
-		inputQueue:     inputQueue,
-		outputExchange: outputExchange,
-		fruitItemMap:   map[string]map[string]fruititem.FruitItem{},
+		inputQueue:        inputQueue,
+		outputExchange:    outputExchange,
+		fruitItemMap:      map[string]map[string]fruititem.FruitItem{},
+		aggregationAmount: config.AggregationAmount,
+		aggregationPrefix: config.AggregationPrefix,
 	}, nil
 }
 
@@ -69,6 +74,13 @@ func (sum *Sum) handleSignals() {
 	<-signals
 	slog.Info("SIGTERM signal received")
 	sum.inputQueue.StopConsuming()
+}
+
+func (sum *Sum) routingKeyForFruit(fruit string) string {
+	h := fnv.New32a()
+	h.Write([]byte(fruit))
+	index := int(h.Sum32()) % sum.aggregationAmount
+	return fmt.Sprintf("%s_%d", sum.aggregationPrefix, index)
 }
 
 func (sum *Sum) handleMessage(msg middleware.Message, ack func(), nack func()) {
@@ -100,6 +112,7 @@ func (sum *Sum) handleEndOfRecordMessage(clientId string) error {
 		clientMap = map[string]fruititem.FruitItem{}
 	}
 
+	// Send each fruit's partial sum to the aggregator that owns that fruit
 	for key := range clientMap {
 		fruitRecord := []fruititem.FruitItem{clientMap[key]}
 		message, err := inner.SerializeMessage(clientId, fruitRecord)
@@ -107,12 +120,14 @@ func (sum *Sum) handleEndOfRecordMessage(clientId string) error {
 			slog.Debug("While serializing message", "err", err)
 			return err
 		}
-		if err := sum.outputExchange.Send(*message); err != nil {
+		routingKey := sum.routingKeyForFruit(key)
+		if err := sum.outputExchange.SendToKey(*message, routingKey); err != nil {
 			slog.Debug("While sending message", "err", err)
 			return err
 		}
 	}
 
+	// Broadcast EOF to all aggregators so each one knows this Sum is done
 	eofMessage := []fruititem.FruitItem{}
 	message, err := inner.SerializeMessage(clientId, eofMessage)
 	if err != nil {

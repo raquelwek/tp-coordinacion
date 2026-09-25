@@ -19,24 +19,31 @@ func (em *ExchangeMiddleware) StartConsuming(callbackFunc func(msg Message, ack 
 
 func (e *ExchangeMiddleware) Send(msg Message) error {
 	for _, key := range e.routingKeys {
-		err := e.channel.PublishWithContext(
-			context.Background(),
-			e.exchangeName,
-			key,
-			false,
-			false,
-			rmq.Publishing{
-				ContentType:  PLAIN_TEXT_TYPE,
-				Body:         []byte(msg.Body),
-				DeliveryMode: rmq.Persistent,
-			},
-		)
-		if err != nil {
-			if e.isDisconnected() {
-				return ErrMessageMiddlewareDisconnected
-			}
-			return ErrMessageMiddlewareMessage
+		if err := e.SendToKey(msg, key); err != nil {
+			return err
 		}
+	}
+	return nil
+}
+
+func (e *ExchangeMiddleware) SendToKey(msg Message, key string) error {
+	err := e.channel.PublishWithContext(
+		context.Background(),
+		e.exchangeName,
+		key,
+		false,
+		false,
+		rmq.Publishing{
+			ContentType:  PLAIN_TEXT_TYPE,
+			Body:         []byte(msg.Body),
+			DeliveryMode: rmq.Persistent,
+		},
+	)
+	if err != nil {
+		if e.isDisconnected() {
+			return ErrMessageMiddlewareDisconnected
+		}
+		return ErrMessageMiddlewareMessage
 	}
 	return nil
 }
