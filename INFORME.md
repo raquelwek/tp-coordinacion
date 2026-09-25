@@ -61,4 +61,5 @@ Para manejar múltiples clientes de forma concurrente, es necesario agregar un `
 esto lo agregamos en `messageHandler` para que al serializar y desserializar los mensajes de **EOF y DATA** se tengan en cuenta. Para no modificar el gateway
 lo que hacemos es mantener un contador atómico global que se utilice a medida que se inicialice un nuevo hanlder poder asegurar un id único por cliente.
 
-Des
+Hacemos un doble hasheo para poder discriminar sumas de cantidades en base al identificador creado.
+
