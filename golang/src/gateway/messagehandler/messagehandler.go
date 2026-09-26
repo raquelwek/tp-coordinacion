@@ -12,7 +12,8 @@ import (
 var clientCounter atomic.Uint64
 
 type MessageHandler struct {
-	clientId string
+	clientId  string
+	itemsSent uint64
 }
 
 func NewMessageHandler() MessageHandler {
@@ -21,18 +22,18 @@ func NewMessageHandler() MessageHandler {
 }
 
 func (messageHandler *MessageHandler) SerializeDataMessage(fruitRecord fruititem.FruitItem) (*middleware.Message, error) {
+	messageHandler.itemsSent++
 	data := []fruititem.FruitItem{fruitRecord}
 	return inner.SerializeMessage(messageHandler.clientId, data)
 }
 
 func (messageHandler *MessageHandler) SerializeEOFMessage() (*middleware.Message, error) {
-	data := []fruititem.FruitItem{}
-	return inner.SerializeMessage(messageHandler.clientId, data)
+	return inner.SerializeEOFMessage(messageHandler.clientId, messageHandler.itemsSent)
 }
 
 // DeserializeResultMessage returns the fruit top if the message belongs to this client, nil if it belongs to another client.
 func (messageHandler *MessageHandler) DeserializeResultMessage(message *middleware.Message) ([]fruititem.FruitItem, error) {
-	clientId, fruitRecords, _, err := inner.DeserializeMessage(message)
+	clientId, fruitRecords, _, _, err := inner.DeserializeMessage(message)
 	if err != nil {
 		return nil, err
 	}

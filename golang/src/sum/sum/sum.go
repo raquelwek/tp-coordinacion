@@ -86,7 +86,7 @@ func (sum *Sum) routingKeyForFruit(fruit string) string {
 func (sum *Sum) handleMessage(msg middleware.Message, ack func(), nack func()) {
 	defer ack()
 
-	clientId, fruitRecords, isEof, err := inner.DeserializeMessage(&msg)
+	clientId, fruitRecords, isEof, _, err := inner.DeserializeMessage(&msg)
 	if err != nil {
 		slog.Error("While deserializing message", "err", err)
 		return

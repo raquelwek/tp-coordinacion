@@ -83,3 +83,8 @@ demás puedan acceder a esa información, y a la hora de que llegue un EOF sea s
 fue la cantidad total de datos recibida para un cliente.
 
 Los mensajes a publicar serían como "+1 para client_id X" y cada componente al leerlo suma a su contador de información total. De esta forma nos evitamos mecanismos más complejos como un scatter-gather posible en el que el nodo que reciba el EOF deba recolectar el estado de los demás.
+
+
+## Conteo de FruitItems enviados por cliente
+
+Para implementar el mecanismo de coordinación descripto en el EOF (sección *Envío de EOF: ¿Cuándo están listos todos?*), se agregó en `MessageHandler` un contador `itemsSent` de tipo `uint64` que se incrementa en cada llamada a `SerializeDataMessage`. Al momento de llamar `SerializeEOFMessage`, ese total se embebe en el mensaje de EOF.
