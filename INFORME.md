@@ -82,9 +82,16 @@ La idea sería tenr un exchange en el que los componentes Sum publiquen su progr
 demás puedan acceder a esa información, y a la hora de que llegue un EOF sea sencillo saber cuál
 fue la cantidad total de datos recibida para un cliente.
 
-Los mensajes a publicar serían como "+1 para client_id X" y cada componente al leerlo suma a su contador de información total. De esta forma nos evitamos mecanismos más complejos como un scatter-gather posible en el que el nodo que reciba el EOF deba recolectar el estado de los demás.
+Los mensajes a publicar serían como "client_id,#fruit_items" y cada componente al leerlo suma a su contador de información total. De esta forma nos evitamos mecanismos más complejos como un scatter-gather posible en el que el nodo que reciba el EOF deba recolectar el estado de los demás.
 
+En el código, inicializamos un exchange con el cual enviará mensajes a todo componente sum que haya hecho bind
+al mismo, esto es posible utilizando la wildcard `#` provista por el exchange de tipo `topic`. Luego tendremos un hilo (gorutines) uno que consume de la cola y actualiza los contadores de info total recibida por cliente, y las notificaciones de recibido se publicarán a medida que se procesan los datos llegados.
 
-## Conteo de FruitItems enviados por cliente
+Como el contador si se utilizará en dos hilos distintos debemos protegerlo con un mutex para evitar race conditions. Además para evitar hacer una espera activa una vez se recibe EOF, de forma bloquante esperamos que se cierre el canal, este mismo se cerrará cuando el acumulador del cliente alcance el la cantidad target correspondiente recibida como parámtero en el EOF. El chequeo de cierra el canal se hace cada vez que se actualiza el acumulador al recibirun evento.
+
+NOTA: Que el exchange se usa en dos hilos distintos, pero no es necesario usar mutex pues las operaciones
+son distintas sobre el canal, es decir de consumo y publiación.
+
+##### Conteo de FruitItems enviados por cliente
 
 Para implementar el mecanismo de coordinación descripto en el EOF (sección *Envío de EOF: ¿Cuándo están listos todos?*), se agregó en `MessageHandler` un contador `itemsSent` de tipo `uint64` que se incrementa en cada llamada a `SerializeDataMessage`. Al momento de llamar `SerializeEOFMessage`, ese total se embebe en el mensaje de EOF.

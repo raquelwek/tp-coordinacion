@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
 
 	"github.com/7574-sistemas-distribuidos/tp-coordinacion/common/fruititem"
@@ -31,6 +33,8 @@ type Sum struct {
 	fruitItemMap      map[string]map[string]fruititem.FruitItem
 	aggregationAmount int
 	aggregationPrefix string
+	accumAmount       AccumAmount
+	eventsExhcange    middleware.Middleware
 }
 
 func NewSum(config SumConfig) (*Sum, error) {
@@ -46,8 +50,9 @@ func NewSum(config SumConfig) (*Sum, error) {
 		outputExchangeRouteKeys[i] = fmt.Sprintf("%s_%d", config.AggregationPrefix, i)
 	}
 
-	outputExchange, err := middleware.CreateExchangeMiddleware(config.AggregationPrefix, outputExchangeRouteKeys, connSettings)
-	if err != nil {
+	outputExchange, err1 := middleware.CreateExchangeMiddleware(config.AggregationPrefix, outputExchangeRouteKeys, connSettings)
+	eventsExhcange, err2 := middleware.CreateExchangeMiddleware("events", []string{"#"}, connSettings)
+	if err1 != nil || err2 != nil {
 		inputQueue.Close()
 		return nil, err
 	}
@@ -58,11 +63,14 @@ func NewSum(config SumConfig) (*Sum, error) {
 		fruitItemMap:      map[string]map[string]fruititem.FruitItem{},
 		aggregationAmount: config.AggregationAmount,
 		aggregationPrefix: config.AggregationPrefix,
+		accumAmount:       NewAccumAmount(),
+		eventsExhcange:    eventsExhcange,
 	}, nil
 }
 
 func (sum *Sum) Run() {
 	go sum.handleSignals()
+	go sum.handleEvent()
 	sum.inputQueue.StartConsuming(func(msg middleware.Message, ack, nack func()) {
 		sum.handleMessage(msg, ack, nack)
 	})
@@ -86,17 +94,20 @@ func (sum *Sum) routingKeyForFruit(fruit string) string {
 func (sum *Sum) handleMessage(msg middleware.Message, ack func(), nack func()) {
 	defer ack()
 
-	clientId, fruitRecords, isEof, _, err := inner.DeserializeMessage(&msg)
+	clientId, fruitRecords, isEof, targetAmmount, err := inner.DeserializeMessage(&msg)
 	if err != nil {
 		slog.Error("While deserializing message", "err", err)
 		return
 	}
 
-	if isEof {
+	if isEof { // wait until every instance has already finished
+		ch := sum.accumAmount.waitFor(clientId, targetAmmount)
+		<-ch
 		if err := sum.handleEndOfRecordMessage(clientId); err != nil {
 			slog.Error("While handling end of record message", "err", err)
 		}
 		return
+		// TODO: Agregar timeout?
 	}
 
 	if err := sum.handleDataMessage(clientId, fruitRecords); err != nil {
@@ -104,6 +115,8 @@ func (sum *Sum) handleMessage(msg middleware.Message, ack func(), nack func()) {
 	}
 }
 
+// @TO DO: Propagar EOF al resto de sums sin reenviar a los AGG para eliminar
+// info del cliente.
 func (sum *Sum) handleEndOfRecordMessage(clientId string) error {
 	slog.Info("Received End Of Records message", "clientId", clientId)
 
@@ -156,5 +169,19 @@ func (sum *Sum) handleDataMessage(clientId string, fruitRecords []fruititem.Frui
 			clientMap[fruitRecord.Fruit] = fruitRecord
 		}
 	}
+	body := fmt.Sprintf("%s,%d", clientId, len(fruitRecords))
+	msg := middleware.Message{Body: body}
+	sum.eventsExhcange.Send(msg)
+	return nil
+}
+
+func (sum *Sum) handleEvent() error {
+	sum.eventsExhcange.StartConsuming(func(msg middleware.Message, ack, nack func()) {
+		values := strings.Split(msg.Body, ",")
+		client_id, ammount := values[0], values[1]
+		num, _ := strconv.ParseUint(ammount, 10, 64) //@TO DO: Constants
+		sum.accumAmount.Add(client_id, num)
+		sum.accumAmount.checkAndNotify(client_id)
+	})
 	return nil
 }
