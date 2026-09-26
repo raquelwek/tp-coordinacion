@@ -63,3 +63,23 @@ lo que hacemos es mantener un contador atómico global que se utilice a medida q
 
 Hacemos un doble hasheo para poder discriminar sumas de cantidades en base al identificador creado.
 
+## Distrubución de la información hacia los aggregators
+Con el fin de distribuir el procesamiento de la información que tiene el componente **Sum**
+hacia los **Agregators** usamos una función de hashing sobre el nombre de la fruta para elegir
+en qué componente serán procesados y tomamos módulo para que sea de entre los definidos por el sistema. Así logramos una distribución uniforme y determinística para una misma nonbre de fruta.
+Hacemos la división por el nombre puesto a que si lo hacemos por el cliente podríamos sobrecargar un único compoenente pues puede variar la cantidad de items por cliente. 
+
+
+### Envío de EOF: ¿Cuándo están listos todos?
+El único EOF envíado por el gataway llega a una sola instancia de Sum. Cómo no es completamente seguro que al llegar este
+todos los semás componentes hayan terminano de procesar los fruititems, es necesario implementar un mecanismo de coordinación
+entre estos. Para asegurarnos de que todos recibieron la información del cliente que manda el EOF, agregamos un nuevo campo al
+mensaje con la cantidad de items enviados, de esta forma nos podemos asegurar que todos los componentes hayan procesado en total
+dicha cantidad.
+
+#### Solución: Cola de eventos
+La idea sería tenr un exchange en el que los componentes Sum publiquen su progreso y todos los 
+demás puedan acceder a esa información, y a la hora de que llegue un EOF sea sencillo saber cuál
+fue la cantidad total de datos recibida para un cliente.
+
+Los mensajes a publicar serían como "+1 para client_id X" y cada componente al leerlo suma a su contador de información total. De esta forma nos evitamos mecanismos más complejos como un scatter-gather posible en el que el nodo que reciba el EOF deba recolectar el estado de los demás.
