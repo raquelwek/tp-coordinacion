@@ -10,6 +10,7 @@ import (
 	"strings"
 	"syscall"
 
+	a "github.com/7574-sistemas-distribuidos/tp-coordinacion/common/accumamount"
 	"github.com/7574-sistemas-distribuidos/tp-coordinacion/common/fruititem"
 	"github.com/7574-sistemas-distribuidos/tp-coordinacion/common/messageprotocol/inner"
 	"github.com/7574-sistemas-distribuidos/tp-coordinacion/common/middleware"
@@ -33,7 +34,7 @@ type Sum struct {
 	fruitItemMap      map[string]map[string]fruititem.FruitItem
 	aggregationAmount int
 	aggregationPrefix string
-	accumAmount       AccumAmount
+	accumAmount       a.AccumAmount
 	eventsExhcange    middleware.Middleware
 }
 
@@ -51,7 +52,7 @@ func NewSum(config SumConfig) (*Sum, error) {
 	}
 
 	outputExchange, err1 := middleware.CreateExchangeMiddleware(config.AggregationPrefix, outputExchangeRouteKeys, connSettings)
-	eventsExhcange, err2 := middleware.CreateExchangeMiddleware("events", []string{"#"}, connSettings)
+	eventsExhcange, err2 := middleware.CreateExchangeMiddleware("sum_events", []string{"#"}, connSettings)
 	if err1 != nil || err2 != nil {
 		inputQueue.Close()
 		return nil, err
@@ -63,7 +64,7 @@ func NewSum(config SumConfig) (*Sum, error) {
 		fruitItemMap:      map[string]map[string]fruititem.FruitItem{},
 		aggregationAmount: config.AggregationAmount,
 		aggregationPrefix: config.AggregationPrefix,
-		accumAmount:       NewAccumAmount(),
+		accumAmount:       a.NewAccumAmount(),
 		eventsExhcange:    eventsExhcange,
 	}, nil
 }
@@ -101,7 +102,7 @@ func (sum *Sum) handleMessage(msg middleware.Message, ack func(), nack func()) {
 	}
 
 	if isEof { // wait until every instance has already finished
-		ch := sum.accumAmount.waitFor(clientId, targetAmmount)
+		ch := sum.accumAmount.WaitFor(clientId, targetAmmount)
 		go func() {
 			//defer sum.wg.Done()
 			<-ch
@@ -184,7 +185,7 @@ func (sum *Sum) handleEvent() error {
 		client_id, ammount := values[0], values[1]
 		num, _ := strconv.ParseUint(ammount, 10, 64) //@TO DO: Constants
 		sum.accumAmount.Add(client_id, num)
-		sum.accumAmount.checkAndNotify(client_id)
+		sum.accumAmount.CheckAndNotify(client_id)
 	})
 	return nil
 }

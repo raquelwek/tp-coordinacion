@@ -16,12 +16,12 @@ type accumAmount struct {
 type AccumAmount interface {
 	// Returns the channel to be close when the target
 	// ammount is reached.
-	waitFor(clientID string, target uint64) <-chan struct{}
+	WaitFor(clientID string, target uint64) <-chan struct{}
 
 	// In case the EOF has arrived and the main thread is waiting
 	// to reach de target ammount it closes the channel to notify
 	// it has been reached.
-	checkAndNotify(clientID string)
+	CheckAndNotify(clientID string)
 
 	// Adds to the `client_id“ accumulator the quantity
 	// indicated by `num`
@@ -31,7 +31,7 @@ type AccumAmount interface {
 func NewAccumAmount() AccumAmount {
 	return &accumAmount{accumulator: make(map[string]uint64), waiters: make(map[string]waiter)}
 }
-func (accumAmount *accumAmount) waitFor(clientID string, target uint64) <-chan struct{} {
+func (accumAmount *accumAmount) WaitFor(clientID string, target uint64) <-chan struct{} {
 	accumAmount.mu.Lock()
 	defer accumAmount.mu.Unlock()
 
@@ -44,12 +44,12 @@ func (accumAmount *accumAmount) waitFor(clientID string, target uint64) <-chan s
 	return ch
 }
 
-func (accumAmount *accumAmount) checkAndNotify(clientID string) {
+func (accumAmount *accumAmount) CheckAndNotify(clientID string) {
 	accumAmount.mu.Lock()
 	defer accumAmount.mu.Unlock()
 
 	w, ok := accumAmount.waiters[clientID]
-	if ok && accumAmount.accumulator[clientID] >= w.target {
+	if ok && accumAmount.accumulator[clientID] == w.target {
 		close(w.ch)
 		delete(accumAmount.waiters, clientID)
 	}

@@ -8,6 +8,7 @@ import (
 	"sort"
 	"syscall"
 
+	a "github.com/7574-sistemas-distribuidos/tp-coordinacion/common/accumamount"
 	"github.com/7574-sistemas-distribuidos/tp-coordinacion/common/fruititem"
 	"github.com/7574-sistemas-distribuidos/tp-coordinacion/common/messageprotocol/inner"
 	"github.com/7574-sistemas-distribuidos/tp-coordinacion/common/middleware"
@@ -26,10 +27,12 @@ type AggregationConfig struct {
 }
 
 type Aggregation struct {
-	outputQueue   middleware.Middleware
-	inputExchange middleware.Middleware
-	fruitItemMap  map[string]fruititem.FruitItem
-	topSize       int
+	outputQueue    middleware.Middleware
+	inputExchange  middleware.Middleware
+	fruitItemMap   map[string]fruititem.FruitItem
+	topSize        int
+	accumAmount    a.AccumAmount
+	eventsExhcange middleware.Middleware
 }
 
 func NewAggregation(config AggregationConfig) (*Aggregation, error) {
@@ -42,16 +45,19 @@ func NewAggregation(config AggregationConfig) (*Aggregation, error) {
 
 	inputExchangeRoutingKey := []string{fmt.Sprintf("%s_%d", config.AggregationPrefix, config.Id)}
 	inputExchange, err := middleware.CreateExchangeMiddleware(config.AggregationPrefix, inputExchangeRoutingKey, connSettings)
-	if err != nil {
+	eventsExhcange, err2 := middleware.CreateExchangeMiddleware("agg_events", []string{"#"}, connSettings)
+	if err != nil || err2 != nil {
 		outputQueue.Close()
 		return nil, err
 	}
 
 	return &Aggregation{
-		outputQueue:   outputQueue,
-		inputExchange: inputExchange,
-		fruitItemMap:  map[string]fruititem.FruitItem{},
-		topSize:       config.TopSize,
+		outputQueue:    outputQueue,
+		inputExchange:  inputExchange,
+		fruitItemMap:   map[string]fruititem.FruitItem{},
+		topSize:        config.TopSize,
+		accumAmount:    a.NewAccumAmount(),
+		eventsExhcange: eventsExhcange,
 	}, nil
 }
 

@@ -95,3 +95,11 @@ son distintas sobre el canal, es decir de consumo y publiación.
 ##### Conteo de FruitItems enviados por cliente
 
 Para implementar el mecanismo de coordinación descripto en el EOF (sección *Envío de EOF: ¿Cuándo están listos todos?*), se agregó en `MessageHandler` un contador `itemsSent` de tipo `uint64` que se incrementa en cada llamada a `SerializeDataMessage`. Al momento de llamar `SerializeEOFMessage`, ese total se embebe en el mensaje de EOF.
+
+## Cálculo cantidad total de una fruta
+En los aggregators se calcula la cantidad total de frutas de un tipo específico para un cliente, esto es posible por la manera en la que se distributye la información en el componente precedente.
+En este componente lo único que se hace es hacer el cálculo de items totales para una fruta que usará 
+luego el joiner.
+
+Similar a la problemática del componente anterior tenemos que unificar un EOF para que reciba el componente final, luego podemos aplicar una lógica similar de exchange compartido entre componentes de tipo agregator que escuche eventos para coordinar el envío de un único EOF al joiner.
+
