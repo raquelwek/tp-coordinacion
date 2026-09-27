@@ -1,6 +1,8 @@
 package sum
 
-import "sync"
+import (
+	"sync"
+)
 
 type waiter struct {
 	ch     chan struct{}
@@ -26,42 +28,54 @@ type AccumAmount interface {
 	// Adds to the `client_id“ accumulator the quantity
 	// indicated by `num`
 	Add(client_id string, num uint64)
+
+	// Returns true if theare no more waiters for the client id
+	// which is true only if the channel is closed.
+	ChannelHasBeenClosed(clientId string, target uint64) bool
 }
 
 func NewAccumAmount() AccumAmount {
 	return &accumAmount{accumulator: make(map[string]uint64), waiters: make(map[string]waiter)}
 }
-func (accumAmount *accumAmount) WaitFor(clientID string, target uint64) <-chan struct{} {
+func (accumAmount *accumAmount) WaitFor(clientId string, target uint64) <-chan struct{} {
 	accumAmount.mu.Lock()
 	defer accumAmount.mu.Unlock()
 
 	ch := make(chan struct{})
-	if accumAmount.accumulator[clientID] >= target {
+	if accumAmount.accumulator[clientId] == target {
 		close(ch)
 		return ch
 	}
-	accumAmount.waiters[clientID] = waiter{ch: ch, target: target}
+	accumAmount.waiters[clientId] = waiter{ch: ch, target: target}
 	return ch
 }
 
-func (accumAmount *accumAmount) CheckAndNotify(clientID string) {
+func (accumAmount *accumAmount) CheckAndNotify(clientId string) {
 	accumAmount.mu.Lock()
 	defer accumAmount.mu.Unlock()
 
-	w, ok := accumAmount.waiters[clientID]
-	if ok && accumAmount.accumulator[clientID] == w.target {
+	w, ok := accumAmount.waiters[clientId]
+	if ok && accumAmount.accumulator[clientId] == w.target {
 		close(w.ch)
-		delete(accumAmount.waiters, clientID)
+		delete(accumAmount.waiters, clientId)
 	}
 }
 
 func (accumAmount *accumAmount) Add(client_id string, num uint64) {
 	accumAmount.mu.Lock()
+	defer accumAmount.mu.Unlock()
 	_, ok := accumAmount.accumulator[client_id]
 	if ok {
 		accumAmount.accumulator[client_id] += num
 	} else {
 		accumAmount.accumulator[client_id] = num
 	}
-	accumAmount.mu.Unlock()
+}
+
+func (accumAmount *accumAmount) ChannelHasBeenClosed(clientId string, target uint64) bool {
+	accumAmount.mu.Lock()
+	defer accumAmount.mu.Unlock()
+	_, ok := accumAmount.waiters[clientId]
+	return !ok && accumAmount.accumulator[clientId] == target
+
 }
