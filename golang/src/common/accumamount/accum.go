@@ -29,7 +29,7 @@ type AccumAmount interface {
 	// indicated by `num`
 	Add(client_id string, num uint64)
 
-	// Returns true if theare no more waiters for the client id
+	// Returns true if there are no more waiters for the client id
 	// which is true only if the channel is closed.
 	ChannelHasBeenClosed(clientId string, target uint64) bool
 }

@@ -96,10 +96,26 @@ son distintas sobre el canal, es decir de consumo y publiación.
 
 Para implementar el mecanismo de coordinación descripto en el EOF (sección *Envío de EOF: ¿Cuándo están listos todos?*), se agregó en `MessageHandler` un contador `itemsSent` de tipo `uint64` que se incrementa en cada llamada a `SerializeDataMessage`. Al momento de llamar `SerializeEOFMessage`, ese total se embebe en el mensaje de EOF.
 
-## Cálculo cantidad total de una fruta
+## Cálculo de tops parciales hacia el resultado final
 En los aggregators se calcula la cantidad total de frutas de un tipo específico para un cliente, esto es posible por la manera en la que se distributye la información en el componente precedente.
-En este componente lo único que se hace es hacer el cálculo de items totales para una fruta que usará 
+En este componente lo único que se hace es hacer el cálculo de tops parciales con las cantidades totales para una fruta que usará 
 luego el joiner.
 
-Similar a la problemática del componente anterior tenemos que unificar un EOF para que reciba el componente final, luego podemos aplicar una lógica similar de exchange compartido entre componentes de tipo agregator que escuche eventos para coordinar el envío de un único EOF al joiner.
+### Problemática
+Opuesta a la problemática del componente anterior tenemos que unificar un EOF para que reciba el componente final, luego podemos aplicar una lógica similar de exchange compartido entre componentes de tipo agregator que escuche eventos para coordinar el envío de un único EOF al joiner.
+
+###  Mensajes intercambiados
+Para que todos los componentes estén preparados para enviar un único EOF, es necesario que de alguna forma
+quién lo envíe sepa que el resto también terminó de enviar sus tops parciales al joiner, de otra forma no
+es seguro que se calcule bien el top. Esto se notificará mediante un mensaje de la forma `"client_id, EOF"` y 
+usaremos la misma lógica de acumulador para el componente anterior, sumándole el método:
+```
+// Returns true if there are no more waiters for the client id
+// which is true only if the channel is closed.
+ChannelHasBeenClosed(clientId string, target uint64) bool
+```
+para asegurarnos de que un únco compoente envíe el EOF.
+
+
+
 
