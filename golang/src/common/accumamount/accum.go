@@ -28,10 +28,6 @@ type AccumAmount interface {
 	// Adds to the `client_id“ accumulator the quantity
 	// indicated by `num`
 	Add(client_id string, num uint64)
-
-	// Returns true if there are no more waiters for the client id
-	// which is true only if the channel is closed.
-	ChannelHasBeenClosed(clientId string, target uint64) bool
 }
 
 func NewAccumAmount() AccumAmount {
@@ -55,7 +51,7 @@ func (accumAmount *accumAmount) CheckAndNotify(clientId string) {
 	defer accumAmount.mu.Unlock()
 
 	w, ok := accumAmount.waiters[clientId]
-	if ok && accumAmount.accumulator[clientId] == w.target {
+	if ok && accumAmount.accumulator[clientId] == w.target { // TO DO: Revisar si hay q poner >=
 		close(w.ch)
 		delete(accumAmount.waiters, clientId)
 	}
@@ -70,12 +66,4 @@ func (accumAmount *accumAmount) Add(client_id string, num uint64) {
 	} else {
 		accumAmount.accumulator[client_id] = num
 	}
-}
-
-func (accumAmount *accumAmount) ChannelHasBeenClosed(clientId string, target uint64) bool {
-	accumAmount.mu.Lock()
-	defer accumAmount.mu.Unlock()
-	_, ok := accumAmount.waiters[clientId]
-	return !ok && accumAmount.accumulator[clientId] == target
-
 }
