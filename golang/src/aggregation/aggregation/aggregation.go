@@ -27,12 +27,13 @@ type AggregationConfig struct {
 }
 
 type Aggregation struct {
-	outputQueue    middleware.Middleware
-	inputExchange  middleware.Middleware
-	fruitItemMap   map[string]fruititem.FruitItem
-	topSize        int
-	accumAmount    a.AccumAmount
-	eventsExhcange middleware.Middleware
+	outputQueue       middleware.Middleware
+	inputExchange     middleware.Middleware
+	fruitItemMap      map[string]fruititem.FruitItem
+	topSize           int
+	accumAmount       a.AccumAmount
+	eventsExhcange    middleware.Middleware
+	AggregationAmount int
 }
 
 func NewAggregation(config AggregationConfig) (*Aggregation, error) {
@@ -52,17 +53,19 @@ func NewAggregation(config AggregationConfig) (*Aggregation, error) {
 	}
 
 	return &Aggregation{
-		outputQueue:    outputQueue,
-		inputExchange:  inputExchange,
-		fruitItemMap:   map[string]fruititem.FruitItem{},
-		topSize:        config.TopSize,
-		accumAmount:    a.NewAccumAmount(),
-		eventsExhcange: eventsExhcange,
+		outputQueue:       outputQueue,
+		inputExchange:     inputExchange,
+		fruitItemMap:      map[string]fruititem.FruitItem{},
+		topSize:           config.TopSize,
+		accumAmount:       a.NewAccumAmount(),
+		eventsExhcange:    eventsExhcange,
+		AggregationAmount: config.AggregationAmount,
 	}, nil
 }
 
 func (aggregation *Aggregation) Run() {
 	go aggregation.handleSignals()
+	go aggregation.handleEvent()
 	aggregation.inputExchange.StartConsuming(func(msg middleware.Message, ack, nack func()) {
 		aggregation.handleMessage(msg, ack, nack)
 	})
@@ -74,28 +77,37 @@ func (aggregation *Aggregation) handleSignals() {
 	<-signals
 	slog.Info("SIGTERM signal received")
 	aggregation.inputExchange.StopConsuming()
+	aggregation.eventsExhcange.StopConsuming()
 }
 
 func (aggregation *Aggregation) handleMessage(msg middleware.Message, ack func(), nack func()) {
-	defer ack()
+	defer ack() // @To DO: cambiarlo
 
-	_, fruitRecords, isEof, _, err := inner.DeserializeMessage(&msg)
+	clientId, fruitRecords, isEof, _, err := inner.DeserializeMessage(&msg)
 	if err != nil {
 		slog.Error("While deserializing message", "err", err)
 		return
 	}
 
 	if isEof {
-		if err := aggregation.handleEndOfRecordsMessage(); err != nil {
-			slog.Error("While handling end of record message", "err", err)
-		}
-		return
-	}
+		body := fmt.Sprintf("%s", clientId)
+		msg := middleware.Message{Body: body}
+		aggregation.eventsExhcange.Send(msg)
+		ch := aggregation.accumAmount.WaitFor(clientId, uint64(aggregation.AggregationAmount))
 
-	aggregation.handleDataMessage(fruitRecords)
+		go func() {
+			<-ch
+			if err := aggregation.handleEndOfRecordsMessage(clientId); err != nil {
+				slog.Error("While handling end of record message", "err", err)
+			}
+			ack()
+		}()
+	} else {
+		aggregation.handleDataMessage(fruitRecords)
+	}
 }
 
-func (aggregation *Aggregation) handleEndOfRecordsMessage() error {
+func (aggregation *Aggregation) handleEndOfRecordsMessage(clientId string) error {
 	slog.Info("Received End Of Records message")
 
 	fruitTopRecords := aggregation.buildFruitTop()
@@ -108,7 +120,9 @@ func (aggregation *Aggregation) handleEndOfRecordsMessage() error {
 		slog.Debug("While sending top message", "err", err)
 		return err
 	}
-
+	if aggregation.accumAmount.ChannelHasBeenClosed(clientId, uint64(aggregation.AggregationAmount)) {
+		return nil
+	}
 	eofMessage := []fruititem.FruitItem{}
 	message, err = inner.SerializeMessage("id", eofMessage)
 	if err != nil {
@@ -142,4 +156,12 @@ func (aggregation *Aggregation) buildFruitTop() []fruititem.FruitItem {
 	})
 	finalTopSize := min(aggregation.topSize, len(fruitItems))
 	return fruitItems[:finalTopSize]
+}
+func (aggregation *Aggregation) handleEvent() {
+	aggregation.eventsExhcange.StartConsuming(func(msg middleware.Message, ack, nack func()) {
+		client_id := msg.Body
+		aggregation.accumAmount.Add(client_id, 1)
+		aggregation.accumAmount.CheckAndNotify(client_id)
+		ack()
+	})
 }
