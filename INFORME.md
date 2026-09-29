@@ -125,3 +125,10 @@ El comportamiento esperado es que, una vez que un Aggregator recibe el EOF para 
 Cuando el acumulador alcanza `AGGREGATION_AMOUNT`, se garantiza que todos los Aggregators ya enviaron su top parcial al Joiner. En ese momento, únicamente el Aggregator con `0` será el encargado de enviar el EOF correspondiente a ese `client_id` al Joiner.
 
 De esta manera, se garantiza que el Joiner reciba todos los tops parciales antes del EOF y que, además, reciba un único EOF por cliente.
+
+
+## Cálculo de tops de un cliente: resultado final
+Al igual que los componentes anteriorres, el procesamiento de múltiples clientes en forma concurrente no está soportado, con lo cual debemos distinguir por `client_id` los tops enviados como `fruits records`, para ello usamos la misma técinca de hashing aplicada en **Sum** y **Agreegator**.
+Una vez se recibe el EOF único de un `client_id ` específico desde los agregations, es posible calcular el top final, y enviarlo por la cola de resultados.
+
+Es posible asegurar que luego el gateway enviará el mensaje al cliente correcto pues este caso se cubre en el `MessageHandler`, al intentar deserializar un mensaje que no es para el cliente se saltea el envío al cliente en el componente *Gateway*.
