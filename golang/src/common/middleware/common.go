@@ -28,13 +28,8 @@ func (b *baseMiddleware) isDisconnected() bool {
 
 func (b *baseMiddleware) startConsuming(tag string, callbackFunc func(msg Message, ack func(), nack func())) error {
 	deliveries, err := b.channel.Consume(
-		b.queueName,
-		tag,
-		false, // autoAck: manual
-		false, // exclusive
-		false, // noLocal
-		false, // noWait
-		nil,
+		b.queueName, tag,
+		false, false, false, false, nil,
 	)
 	if err != nil {
 		if b.isDisconnected() {
@@ -44,7 +39,18 @@ func (b *baseMiddleware) startConsuming(tag string, callbackFunc func(msg Messag
 	}
 
 	b.consumerTag = tag
-	go receiveMessages(deliveries, callbackFunc)
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+		receiveMessages(deliveries, callbackFunc) // retorna cuando deliveries se cierra
+	}()
+
+	<-done // bloquea hasta que termine el consumo
+
+	if b.isDisconnected() {
+		return ErrMessageMiddlewareDisconnected
+	}
 	return nil
 }
 

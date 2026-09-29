@@ -18,7 +18,7 @@ logs:
 
 test:
 	mkdir -p output
-	rm ./output/* -f
+	rm -f ./output/*
 	COMPOSE_HTTP_TIMEOUT=300 docker compose -f docker-compose.yaml up --build --remove-orphans --detach
 	go run ./verify_output.go; EXIT_CODE=$$?; \
 	docker compose -f docker-compose.yaml stop -t 5; \
