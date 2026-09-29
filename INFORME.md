@@ -99,29 +99,29 @@ y en caso de que sí envía a todos los agregators
 Para implementar el mecanismo de coordinación descripto en el EOF (sección *Envío de EOF: ¿Cuándo están listos todos?*), se agregó en `MessageHandler` un contador `itemsSent` de tipo `uint64` que se incrementa en cada llamada a `SerializeDataMessage`. Al momento de llamar `SerializeEOFMessage`, ese total se embebe en el mensaje de EOF.
 
 ## Cálculo de tops parciales hacia el resultado final
-En los aggregators se calcula la cantidad total de frutas de un tipo específico para un cliente, esto es posible por la manera en la que se distributye la información en el componente precedente.
-En este componente lo único que se hace es hacer el cálculo de tops parciales con las cantidades totales para una fruta que usará 
-luego el joiner.
+
+En los Aggregators se calcula la cantidad total de frutas de un tipo específico para cada cliente. Esto es posible gracias a la forma en que se distribuye la información en el componente precedente.
+
+En este componente se utilizan estas cantidades totales para calcular los tops parciales que luego serán utilizados por el Joiner para obtener el resultado final.
 
 ### Problemática
-En primer lugar, no está soportada el procesamiento de mensajes para múltiples clientes, asíq ue agregamos, un mapeo doble por `client_id` y el nombre de la `fruit` así
-hacemos bien el conteo de forma concurrente.
-Opuesta a la problemática del componente anterior tenemos que unificar un EOF para que reciba el componente final, luego podemos aplicar una lógica similar de exchange compartido entre componentes de tipo agregator que escuche eventos para coordinar el envío de un único EOF al joiner.
 
-###  Mensajes intercambiados
-Para que todos los componentes estén preparados para enviar un único EOF, es necesario que de alguna forma
-quién lo envíe sepa que el resto también terminó de enviar sus tops parciales al joiner, de otra forma no
-es seguro que se calcule bien el top. Esto se notificará mediante un mensaje de la forma `"client_id"` y 
-usaremos la misma lógica de acumulador para el componente anterior, sumándole el método:
-```
-// Returns true if there are no more waiters for the client id
-// which is true only if the channel is closed.
-ChannelHasBeenClosed(clientId string, target uint64) bool
-```
-para asegurarnos de que un único compoente envíe el EOF, imponemos la condición análoga a Sum pero la cantidad
-target será la variable de entorno `AGREGATION_AMOUNT`.
+En primer lugar, no se encontraba soportado el procesamiento de mensajes correspondientes a múltiples clientes, por lo que se agregó un mapeo por `client_id` y, dentro de este, por nombre de `fruit`. De esta manera, los datos de distintos clientes pueden procesarse concurrentemente sin mezclar sus resultados.
 
+Por otro lado, a diferencia del componente anterior, en este caso es necesario unificar los mensajes EOF para que el componente final (Joiner) reciba un único EOF por cliente. Para resolverlo, se utiliza un exchange compartido entre los Aggregators que permite notificar cuándo cada componente terminó de procesar un cliente.
 
+### Mensajes intercambiados
 
+Para que un único componente pueda enviar el EOF al Joiner, es necesario garantizar previamente que todos los Aggregators hayan enviado sus tops parciales correspondientes a ese cliente. De lo contrario, el Joiner podría recibir el EOF antes de haber recibido alguno de los resultados parciales.
 
-todo de princesa te
+Para ello, una vez que un Aggregator recibe el EOF correspondiente a un `client_id`, calcula y envía su top parcial al Joiner. Luego de realizar este envío, notifica el evento mediante el exchange `agg_events`, utilizando un mensaje que contiene el `client_id`.
+
+Cada Aggregator mantiene un acumulador de estos eventos y contabiliza cuántos Aggregators terminaron de enviar su resultado parcial para cada cliente. Se utiliza como `target` la variable de entorno `AGGREGATION_AMOUNT`, que representa la cantidad total de Aggregators.
+
+### Coordinación de Aggregators
+
+El comportamiento esperado es que, una vez que un Aggregator recibe el EOF para un `client_id`, calcule y envíe su top parcial al Joiner y posteriormente notifique su finalización en el exchange compartido.
+
+Cuando el acumulador alcanza `AGGREGATION_AMOUNT`, se garantiza que todos los Aggregators ya enviaron su top parcial al Joiner. En ese momento, únicamente el Aggregator con `0` será el encargado de enviar el EOF correspondiente a ese `client_id` al Joiner.
+
+De esta manera, se garantiza que el Joiner reciba todos los tops parciales antes del EOF y que, además, reciba un único EOF por cliente.
