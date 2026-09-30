@@ -8,7 +8,6 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
-	"sync"
 	"syscall"
 
 	a "github.com/7574-sistemas-distribuidos/tp-coordinacion/common/accumamount"
@@ -33,13 +32,11 @@ type Sum struct {
 	outputExchange middleware.Middleware
 	ammount        int
 	// fruitItemMap is keyed by clientId -> fruit -> FruitItem
-	fruitItemMap       map[string]map[string]fruititem.FruitItem
-	fruitItemMapMu     sync.RWMutex
-	aggregationAmount  int
-	aggregationPrefix  string
-	accumAmount        a.AccumAmount
-	parcialsSendAmount a.AccumAmount
-	eventsExhcange     middleware.Middleware
+	fruitItemMap      map[string]map[string]fruititem.FruitItem
+	aggregationAmount int
+	aggregationPrefix string
+	accumAmount       a.AccumAmount
+	eventsExhcange    middleware.Middleware
 }
 
 func NewSum(config SumConfig) (*Sum, error) {
@@ -63,15 +60,14 @@ func NewSum(config SumConfig) (*Sum, error) {
 	}
 
 	return &Sum{
-		inputQueue:         inputQueue,
-		outputExchange:     outputExchange,
-		ammount:            config.SumAmount,
-		fruitItemMap:       map[string]map[string]fruititem.FruitItem{},
-		aggregationAmount:  config.AggregationAmount,
-		aggregationPrefix:  config.AggregationPrefix,
-		accumAmount:        a.NewAccumAmount(),
-		parcialsSendAmount: a.NewAccumAmount(),
-		eventsExhcange:     eventsExhcange,
+		inputQueue:        inputQueue,
+		outputExchange:    outputExchange,
+		ammount:           config.SumAmount,
+		fruitItemMap:      map[string]map[string]fruititem.FruitItem{},
+		aggregationAmount: config.AggregationAmount,
+		aggregationPrefix: config.AggregationPrefix,
+		accumAmount:       a.NewAccumAmount(),
+		eventsExhcange:    eventsExhcange,
 	}, nil
 }
 
@@ -109,16 +105,11 @@ func (sum *Sum) handleMessage(msg middleware.Message, ack func(), nack func()) {
 	if isEof { // wait until every instance has already finished
 		slog.Info("EOF received, waiting for accumulator", "clientId", clientId, "targetAmount", targetAmmount)
 		ch := sum.accumAmount.WaitFor(clientId, targetAmmount)
-		ch2 := sum.parcialsSendAmount.WaitFor(clientId, uint64(sum.ammount))
 		go func() {
 			<-ch
 			body := fmt.Sprintf("%s,ALL_RECEIVED", clientId)
 			msg := middleware.Message{Body: body}
 			sum.eventsExhcange.Send(msg)
-			<-ch2
-			if err := sum.handleEndOfRecordMessage(clientId); err != nil {
-				slog.Error("While handling end of record message", "err", err)
-			}
 			ack()
 		}()
 		// No ack here: the goroutine owns the ack for this message
@@ -131,7 +122,6 @@ func (sum *Sum) handleMessage(msg middleware.Message, ack func(), nack func()) {
 	}
 }
 func (sum *Sum) sendParcialSums(clientId string) error {
-	sum.fruitItemMapMu.Lock()
 	clientMap, ok := sum.fruitItemMap[clientId]
 	if !ok {
 		clientMap = map[string]fruititem.FruitItem{}
@@ -141,8 +131,8 @@ func (sum *Sum) sendParcialSums(clientId string) error {
 	for _, item := range clientMap {
 		items = append(items, item)
 	}
-	sum.fruitItemMapMu.Unlock()
 
+	slog.Info("Sending partial sums", "clientId", clientId, "count", len(items))
 	// Log and send each fruit's partial sum to the aggregator that owns that fruit
 	for _, item := range items {
 		routingKey := sum.routingKeyForFruit(item.Fruit)
@@ -174,16 +164,11 @@ func (sum *Sum) handleEndOfRecordMessage(clientId string) error {
 		return err
 	}
 
-	sum.fruitItemMapMu.Lock()
 	delete(sum.fruitItemMap, clientId)
-	sum.fruitItemMapMu.Unlock()
 	return nil
 }
 
 func (sum *Sum) handleDataMessage(clientId string, fruitRecords []fruititem.FruitItem) error {
-	sum.fruitItemMapMu.Lock()
-	defer sum.fruitItemMapMu.Unlock()
-
 	if _, ok := sum.fruitItemMap[clientId]; !ok {
 		sum.fruitItemMap[clientId] = map[string]fruititem.FruitItem{}
 	}
@@ -209,12 +194,7 @@ func (sum *Sum) handleEvent() error {
 		switch value {
 		case "ALL_RECEIVED":
 			sum.sendParcialSums(client_id)
-			body := fmt.Sprintf("%s,%s", client_id, "PARCIAL_SUM_SENDED")
-			msg := middleware.Message{Body: body}
-			sum.eventsExhcange.Send(msg)
-		case "PARCIAL_SUM_SENDED":
-			sum.parcialsSendAmount.Add(client_id, 1)
-			sum.parcialsSendAmount.CheckAndNotify(client_id)
+			sum.handleEndOfRecordMessage(client_id)
 		default:
 			num, _ := strconv.ParseUint(value, 10, 64) //@TO DO: Constants
 			sum.accumAmount.Add(client_id, num)

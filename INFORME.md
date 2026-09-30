@@ -92,17 +92,15 @@ Los mensajes a publicar serían como "client_id,#fruit_items" y cada componente 
 En el código, inicializamos un exchange con el cual enviará mensajes a todo componente sum que haya hecho bind
 al mismo, esto es posible utilizando la wildcard `#` provista por el exchange de tipo `topic`. Luego tendremos un hilo (gorutina) uno que consume de la cola y actualiza los contadores de info total recibida por cliente, y las notificaciones de recibido se publicarán a medida que se procesan los datos llegados.
 
-Como el contador si se utilizará en dos hilos distintos debemos protegerlo con un mutex para evitar race conditions. Además para evitar hacer una espera activa una vez se recibe EOF, de forma bloquante esperamos que se cierre el canal, este mismo se cerrará cuando el acumulador del cliente alcance el la cantidad target correspondiente recibida como parámtero en el EOF. El chequeo de cierra el canal se hace cada vez que se actualiza el acumulador al recibirun evento.
+Como el contador si se utilizará en dos hilos distintos debemos protegerlo con un mutex para evitar race conditions. Además para evitar hacer una espera activa una vez se recibe EOF, de forma bloquante esperamos que se cierre el canal, este mismo se cerrará cuando el acumulador del cliente alcance el la cantidad target correspondiente recibida como parámtero en el EOF. El chequeo de cierra el canal se hace cada vez que se actualiza el acumulador al recibir un evento.
 
 NOTA: Que el exchange se usa en dos hilos distintos, pero no es necesario usar mutex pues las operaciones
 son distintas sobre el canal, es decir de consumo y publiación.
 ##### **Segunda Etapa: Confirmar que cada componenete envió sus sumas parciales**
 Luego de haber confirmado la recepción de toda la información esperada, el Sum que recibió el EOF transmite el target recibido en el mismo al resto de componentes mediante el mensaje `ALL_RECEIVED`
-de manera que cada uno una vez que lo alcance pueda enviar sus sumas parciales y posteriormente notificar ese evento al resto de componentes
-con el mensje `PARCIAL_SUM_SENDED`, para que una vez
-todos hayan enviado quién recibió el EOF del gateway se encargue de enviar los EOFs del cliente hacia los Agregations. 
+de manera que cada uno una vez que lo alcance pueda enviar sus sumas parciales y enviar su EOF a los agregators. 
 
-El resultado es, el primer Sum en recibir el EOF, evalúa si ya todos los componentes del mismo tipo han recibido la data esperada total para ese cliente, una vez confirmado debe esperar de nuevo a que todos envien sus sumas parciales y en caso de que sí envía a todos los agregators.
+El resultado es, el primer Sum en recibir el EOF, evalúa si ya todos los componentes del mismo tipo han recibido la data esperada total para ese cliente, una vez confirmado debe esperar de nuevo a que todos envien sus sumas parciales y en posteriormente el EOF correspondiente a todos los agregators.
 
 
 ##### Conteo de FruitItems enviados por cliente
