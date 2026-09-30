@@ -20,8 +20,7 @@ func deserializeJson(message []byte) ([]interface{}, error) {
 	return data, nil
 }
 
-// SerializeMessage serializes a data message with format: [clientId, [[fruit, amount], ...]]
-// An empty fruitRecords slice is used to signal EOF (use SerializeEOFMessage for that instead).
+// SerializeMessage serializes a data message with format: [clientId, [[fruit, amount], ...], false]
 func SerializeMessage(clientId string, fruitRecords []fruititem.FruitItem) (*middleware.Message, error) {
 	records := []interface{}{}
 	for _, fruitRecord := range fruitRecords {
@@ -32,29 +31,24 @@ func SerializeMessage(clientId string, fruitRecords []fruititem.FruitItem) (*mid
 		records = append(records, datum)
 	}
 
-	data := []interface{}{clientId, records}
+	data := []interface{}{clientId, records, false}
 
 	body, err := serializeJson(data)
 	if err != nil {
 		return nil, err
 	}
-	message := middleware.Message{Body: string(body)}
-
-	return &message, nil
+	return &middleware.Message{Body: string(body)}, nil
 }
 
-// SerializeEOFMessage serializes an EOF message with format: [clientId, [], totalItemsSent]
-// totalItemsSent is the total number of fruit items sent by this client across all data messages.
+// SerializeEOFMessage serializes an EOF message with format: [clientId, [], true, totalItemsSent]
 func SerializeEOFMessage(clientId string, totalItemsSent uint64) (*middleware.Message, error) {
-	data := []interface{}{clientId, []interface{}{}, totalItemsSent}
+	data := []interface{}{clientId, []interface{}{}, true, totalItemsSent}
 
 	body, err := serializeJson(data)
 	if err != nil {
 		return nil, err
 	}
-	message := middleware.Message{Body: string(body)}
-
-	return &message, nil
+	return &middleware.Message{Body: string(body)}, nil
 }
 
 // DeserializeMessage deserializes a message returning the clientId, fruit records, whether it's an EOF,
@@ -65,8 +59,8 @@ func DeserializeMessage(message *middleware.Message) (string, []fruititem.FruitI
 		return "", nil, false, 0, err
 	}
 
-	if len(data) < 2 {
-		return "", nil, false, 0, errors.New("Message does not have expected [clientId, records] format")
+	if len(data) < 3 {
+		return "", nil, false, 0, errors.New("message does not have expected [clientId, records, isEOF] format")
 	}
 
 	clientId, ok := data[0].(string)
@@ -79,31 +73,34 @@ func DeserializeMessage(message *middleware.Message) (string, []fruititem.FruitI
 		return "", nil, false, 0, errors.New("records is not an array")
 	}
 
+	isEOF, ok := data[2].(bool)
+	if !ok {
+		return "", nil, false, 0, errors.New("isEOF flag is not a bool")
+	}
+
 	fruitRecords := []fruititem.FruitItem{}
 	for _, record := range records {
 		fruitPair, ok := record.([]interface{})
 		if !ok {
-			return "", nil, false, 0, errors.New("Datum is not an array")
+			return "", nil, false, 0, errors.New("datum is not an array")
 		}
 
 		fruit, ok := fruitPair[0].(string)
 		if !ok {
-			return "", nil, false, 0, errors.New("Datum is not a (fruit, amount) pair")
+			return "", nil, false, 0, errors.New("datum is not a (fruit, amount) pair")
 		}
 
 		fruitAmount, ok := fruitPair[1].(float64)
 		if !ok {
-			return "", nil, false, 0, errors.New("Datum is not a (fruit, amount) pair")
+			return "", nil, false, 0, errors.New("datum is not a (fruit, amount) pair")
 		}
 
-		fruitRecord := fruititem.FruitItem{Fruit: fruit, Amount: uint32(fruitAmount)}
-		fruitRecords = append(fruitRecords, fruitRecord)
+		fruitRecords = append(fruitRecords, fruititem.FruitItem{Fruit: fruit, Amount: uint32(fruitAmount)})
 	}
 
-	isEOF := len(fruitRecords) == 0
 	var totalItemsSent uint64
-	if isEOF && len(data) >= 3 {
-		if v, ok := data[2].(float64); ok {
+	if isEOF && len(data) >= 4 {
+		if v, ok := data[3].(float64); ok {
 			totalItemsSent = uint64(v)
 		}
 	}

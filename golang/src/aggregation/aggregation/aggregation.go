@@ -52,7 +52,7 @@ func NewAggregation(config AggregationConfig) (*Aggregation, error) {
 		outputQueue.Close()
 		return nil, err
 	}
-	if err != nil || err2 != nil {
+	if err2 != nil || err2 != nil {
 		outputQueue.Close()
 		inputExchange.Close()
 		return nil, err
@@ -173,8 +173,8 @@ func (aggregation *Aggregation) handleEvent() {
 func (aggregation *Aggregation) handleUnicEof(clientId string) error {
 	ch := aggregation.accumAmount.WaitFor(clientId, uint64(aggregation.AggregationAmount))
 	<-ch
-	eofMessage := []fruititem.FruitItem{}
-	message, err := inner.SerializeMessage(clientId, eofMessage)
+	//eofMessage := []fruititem.FruitItem{}
+	message, err := inner.SerializeEOFMessage(clientId, 0)
 	if err != nil {
 		slog.Debug("While serializing EOF message", "err", err)
 		return err

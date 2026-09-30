@@ -164,8 +164,7 @@ func (sum *Sum) handleEndOfRecordMessage(clientId string) error {
 	slog.Info("Received End Of Records message", "clientId", clientId)
 
 	// Broadcast EOF to all aggregators so each one knows this Sum is done
-	eofMessage := []fruititem.FruitItem{}
-	message, err := inner.SerializeMessage(clientId, eofMessage)
+	message, err := inner.SerializeEOFMessage(clientId, 0)
 	if err != nil {
 		slog.Debug("While serializing EOF message", "err", err)
 		return err
