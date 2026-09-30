@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 
 	a "github.com/7574-sistemas-distribuidos/tp-coordinacion/common/accumamount"
@@ -33,6 +34,7 @@ type Sum struct {
 	ammount        int
 	// fruitItemMap is keyed by clientId -> fruit -> FruitItem
 	fruitItemMap       map[string]map[string]fruititem.FruitItem
+	fruitItemMapMu     sync.RWMutex
 	aggregationAmount  int
 	aggregationPrefix  string
 	accumAmount        a.AccumAmount
@@ -110,7 +112,7 @@ func (sum *Sum) handleMessage(msg middleware.Message, ack func(), nack func()) {
 		ch2 := sum.parcialsSendAmount.WaitFor(clientId, uint64(sum.ammount))
 		go func() {
 			<-ch
-			body := fmt.Sprintf("%s, ALL_RECEIVED", clientId)
+			body := fmt.Sprintf("%s,ALL_RECEIVED", clientId)
 			msg := middleware.Message{Body: body}
 			sum.eventsExhcange.Send(msg)
 			<-ch2
@@ -129,15 +131,21 @@ func (sum *Sum) handleMessage(msg middleware.Message, ack func(), nack func()) {
 	}
 }
 func (sum *Sum) sendParcialSums(clientId string) error {
+	sum.fruitItemMapMu.Lock()
 	clientMap, ok := sum.fruitItemMap[clientId]
 	if !ok {
 		clientMap = map[string]fruititem.FruitItem{}
 	}
+	// Copy the map entries so we can release the lock before sending over the network
+	items := make([]fruititem.FruitItem, 0, len(clientMap))
+	for _, item := range clientMap {
+		items = append(items, item)
+	}
+	sum.fruitItemMapMu.Unlock()
 
 	// Log and send each fruit's partial sum to the aggregator that owns that fruit
-	for key := range clientMap {
-		item := clientMap[key]
-		routingKey := sum.routingKeyForFruit(key)
+	for _, item := range items {
+		routingKey := sum.routingKeyForFruit(item.Fruit)
 		slog.Info("Sending partial sum", "clientId", clientId, "fruit", item.Fruit, "amount", item.Amount, "routingKey", routingKey)
 		fruitRecord := []fruititem.FruitItem{item}
 		message, err := inner.SerializeMessage(clientId, fruitRecord)
@@ -167,11 +175,16 @@ func (sum *Sum) handleEndOfRecordMessage(clientId string) error {
 		return err
 	}
 
+	sum.fruitItemMapMu.Lock()
 	delete(sum.fruitItemMap, clientId)
+	sum.fruitItemMapMu.Unlock()
 	return nil
 }
 
 func (sum *Sum) handleDataMessage(clientId string, fruitRecords []fruititem.FruitItem) error {
+	sum.fruitItemMapMu.Lock()
+	defer sum.fruitItemMapMu.Unlock()
+
 	if _, ok := sum.fruitItemMap[clientId]; !ok {
 		sum.fruitItemMap[clientId] = map[string]fruititem.FruitItem{}
 	}
