@@ -75,6 +75,18 @@ func run() int {
 		return 1
 	}
 
+	slog.Info("Starting aggregation worker",
+		"id", config.Id,
+		"outputQueue", config.OutputQueue,
+		"aggregationAmount", config.AggregationAmount,
+		"aggregationPrefix", config.AggregationPrefix,
+		"sumAmount", config.SumAmount,
+		"sumPrefix", config.SumPrefix,
+		"topSize", config.TopSize,
+		"momHost", config.MomHost,
+		"momPort", config.MomPort,
+	)
+
 	server, err := aggregation.NewAggregation(config)
 	if err != nil {
 		slog.Error("While initializing aggregation", "err", err)

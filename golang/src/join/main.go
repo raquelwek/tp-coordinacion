@@ -75,6 +75,18 @@ func run() int {
 		return 1
 	}
 
+	slog.Info("Starting join worker",
+		"inputQueue", config.InputQueue,
+		"outputQueue", config.OutputQueue,
+		"topSize", config.TopSize,
+		"sumAmount", config.SumAmount,
+		"sumPrefix", config.SumPrefix,
+		"aggregationAmount", config.AggregationAmount,
+		"aggregationPrefix", config.AggregationPrefix,
+		"momHost", config.MomHost,
+		"momPort", config.MomPort,
+	)
+
 	server, err := join.NewJoin(config)
 	if err != nil {
 		slog.Error("While initializing join", "err", err)

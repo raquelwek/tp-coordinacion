@@ -87,6 +87,7 @@ func (join *Join) handleMessage(msg middleware.Message, ack func(), nack func())
 }
 
 func (join *Join) handleEndOfRecordsMessage(clientId string) error {
+	slog.Info("Received End Of Records message", "clientId", clientId)
 	fruitItems := join.fruitItemMap[clientId]
 	sort.SliceStable(fruitItems, func(i, j int) bool {
 		return fruitItems[j].Less(fruitItems[i])

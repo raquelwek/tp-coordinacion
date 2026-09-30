@@ -93,27 +93,27 @@ func (sum *Sum) routingKeyForFruit(fruit string) string {
 }
 
 func (sum *Sum) handleMessage(msg middleware.Message, ack func(), nack func()) {
-	defer ack() // TO DO: Ver si tengo que hacerlo por separado
-
 	clientId, fruitRecords, isEof, targetAmmount, err := inner.DeserializeMessage(&msg)
 	if err != nil {
 		slog.Error("While deserializing message", "err", err)
+		ack()
 		return
 	}
 
 	if isEof { // wait until every instance has already finished
 		ch := sum.accumAmount.WaitFor(clientId, targetAmmount)
 		go func() {
-			//defer sum.wg.Done()
 			<-ch
 			if err := sum.handleEndOfRecordMessage(clientId); err != nil {
 				slog.Error("While handling end of record message", "err", err)
 			}
 			ack()
 		}()
-		// TODO: Agregar timeout?
+		// No ack here: the goroutine owns the ack for this message
+		return
 	}
 
+	defer ack()
 	if err := sum.handleDataMessage(clientId, fruitRecords); err != nil {
 		slog.Error("While handling data message", "err", err)
 	}

@@ -107,7 +107,7 @@ func (aggregation *Aggregation) handleMessage(msg middleware.Message, ack func()
 }
 
 func (aggregation *Aggregation) handleEndOfRecordsMessage(clientId string) error {
-	slog.Info("Received End Of Records message")
+	slog.Info("Received End Of Records message", "clientId", clientId, "aggregationId", aggregation.id)
 	if aggregation.id == 0 {
 		go aggregation.handleUnicEof(clientId)
 	}

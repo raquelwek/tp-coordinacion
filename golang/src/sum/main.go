@@ -69,6 +69,17 @@ func run() int {
 		return 1
 	}
 
+	slog.Info("Starting sum worker",
+		"id", config.Id,
+		"inputQueue", config.InputQueue,
+		"sumAmount", config.SumAmount,
+		"sumPrefix", config.SumPrefix,
+		"aggregationAmount", config.AggregationAmount,
+		"aggregationPrefix", config.AggregationPrefix,
+		"momHost", config.MomHost,
+		"momPort", config.MomPort,
+	)
+
 	server, err := sum.NewSum(config)
 	if err != nil {
 		slog.Error("While initializing sum", "err", err)
