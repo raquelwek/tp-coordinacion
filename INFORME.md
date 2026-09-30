@@ -52,7 +52,7 @@ Se busca modificar el sistema para poder soportar clientes de forma concurrente 
 Para poder distinguir entre clientes, es necesario  tener un identificador único, en este caso un número único. Además para determinar cuándo un cliente terminó de recibir todos los fruit items en total para todas las instancias de sum, agregamos un campo en el EOF con la cantidad de items enviados por ese cliente.
 
 ### Componente `Sum`
-Para lograr que cada componente de Sum notificque a los agregators  correspondientes que ya no enviará más data para un cliente específico, es necesario hacer que los componentes de Sum reciban la notifciación del EOF que solamente un componente recibió, esta información se propagará por una cola con mensajes de control de manera que todas las instancias que no recibieron dicho mensaje queden notificadas y puedan enviar esta información al resto de compoenentes que pudieron no haberlo recibido. Esto último es necesario ya que se la información de rutea a un agregator especifico
+Para lograr que cada componente de Sum notificque a los agregators  correspondientes que ya no enviará más data para un cliente específico, es necesario hacer que los componentes de Sum reciban la notifciación del EOF que solamente un componente recibió, esta información se propagará por una cola con mensajes de control de manera que todas las instancias que no recibieron dicho mensaje queden notificadas y puedan enviar esta información al resto de compoenentes que pudieron no haberlo recibido. Esto último es necesario ya que los Sum deben enviar sus sumas parciales luego de este evento.
 
 # Implementación
 
@@ -71,29 +71,40 @@ Hacemos la división por el nombre puesto a que si lo hacemos por el cliente pod
 
 
 ### Envío de EOF: ¿Cuándo están listos todos?
-El único EOF envíado por el gataway llega a una sola instancia de Sum. Cómo no es completamente seguro que al llegar este
+El único EOF envíado por el getaway llega a una sola instancia de Sum. Cómo no es completamente seguro que al llegar este
 todos los semás componentes hayan terminano de procesar los fruititems, es necesario implementar un mecanismo de coordinación
 entre estos. Para asegurarnos de que todos recibieron la información del cliente que manda el EOF, agregamos un nuevo campo al
-mensaje con la cantidad de items enviados, de esta forma nos podemos asegurar que todos los componentes hayan procesado en total
+mensaje con la cantidad de items enviados para ese cliente, de esta forma nos podemos asegurar que todos los componentes hayan procesado en total
 dicha cantidad.
 
+Ahora bien, luego de que cada componente haya alcanzado ese `target`, debe enviar sus sumas parciales a los `aggregations` correspondientes
+y luego de asegurarnos de su envío, propagar el EOF del cliente a los `aggregations`.
+
 #### Solución: Cola de eventos
-La idea sería tenr un exchange en el que los componentes Sum publiquen su progreso y todos los 
+
+##### **Primera Etapa: Confirmar que se recibió la información esperada**
+La idea sería tener un exchange en el que los componentes Sum publiquen su progreso y todos los 
 demás puedan acceder a esa información, y a la hora de que llegue un EOF sea sencillo saber cuál
-fue la cantidad total de datos recibida para un cliente.
+fue la cantidad total de datos consumida para un cliente por todos los compoentes Sum.
 
 Los mensajes a publicar serían como "client_id,#fruit_items" y cada componente al leerlo suma a su contador de información total. De esta forma nos evitamos mecanismos más complejos como un scatter-gather posible en el que el nodo que reciba el EOF deba recolectar el estado de los demás.
 
 En el código, inicializamos un exchange con el cual enviará mensajes a todo componente sum que haya hecho bind
-al mismo, esto es posible utilizando la wildcard `#` provista por el exchange de tipo `topic`. Luego tendremos un hilo (gorutines) uno que consume de la cola y actualiza los contadores de info total recibida por cliente, y las notificaciones de recibido se publicarán a medida que se procesan los datos llegados.
+al mismo, esto es posible utilizando la wildcard `#` provista por el exchange de tipo `topic`. Luego tendremos un hilo (gorutina) uno que consume de la cola y actualiza los contadores de info total recibida por cliente, y las notificaciones de recibido se publicarán a medida que se procesan los datos llegados.
 
 Como el contador si se utilizará en dos hilos distintos debemos protegerlo con un mutex para evitar race conditions. Además para evitar hacer una espera activa una vez se recibe EOF, de forma bloquante esperamos que se cierre el canal, este mismo se cerrará cuando el acumulador del cliente alcance el la cantidad target correspondiente recibida como parámtero en el EOF. El chequeo de cierra el canal se hace cada vez que se actualiza el acumulador al recibirun evento.
 
 NOTA: Que el exchange se usa en dos hilos distintos, pero no es necesario usar mutex pues las operaciones
 son distintas sobre el canal, es decir de consumo y publiación.
+##### **Segunda Etapa: Confirmar que cada componenete envió sus sumas parciales**
+Luego de haber confirmado la recepción de toda la información esperada, el Sum que recibió el EOF transmite el target recibido en el mismo al resto de componentes mediante el mensaje `ALL_RECEIVED`
+de manera que cada uno una vez que lo alcance pueda enviar sus sumas parciales y posteriormente notificar ese evento al resto de componentes
+con el mensje `PARCIAL_SUM_SENDED`, para que una vez
+todos hayan enviado quién recibió el EOF del gateway se encargue de enviar los EOFs del cliente hacia los Agregations. 
 
-El resultado es, cada el prirmer Sum en recibir el EOF, evalúa si ya todos los componentes del mismo tipo han recibido la data esperada
-y en caso de que sí envía a todos los agregators
+El resultado es, el primer Sum en recibir el EOF, evalúa si ya todos los componentes del mismo tipo han recibido la data esperada total para ese cliente, una vez confirmado debe esperar de nuevo a que todos envien sus sumas parciales y en caso de que sí envía a todos los agregators.
+
+
 ##### Conteo de FruitItems enviados por cliente
 
 Para implementar el mecanismo de coordinación descripto en el EOF (sección *Envío de EOF: ¿Cuándo están listos todos?*), se agregó en `MessageHandler` un contador `itemsSent` de tipo `uint64` que se incrementa en cada llamada a `SerializeDataMessage`. Al momento de llamar `SerializeEOFMessage`, ese total se embebe en el mensaje de EOF.
