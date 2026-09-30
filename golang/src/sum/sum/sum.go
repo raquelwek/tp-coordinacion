@@ -101,6 +101,7 @@ func (sum *Sum) handleMessage(msg middleware.Message, ack func(), nack func()) {
 	}
 
 	if isEof { // wait until every instance has already finished
+		slog.Info("EOF received, waiting for accumulator", "clientId", clientId, "targetAmount", targetAmmount)
 		ch := sum.accumAmount.WaitFor(clientId, targetAmmount)
 		go func() {
 			<-ch
@@ -129,15 +130,17 @@ func (sum *Sum) handleEndOfRecordMessage(clientId string) error {
 		clientMap = map[string]fruititem.FruitItem{}
 	}
 
-	// Send each fruit's partial sum to the aggregator that owns that fruit
+	// Log and send each fruit's partial sum to the aggregator that owns that fruit
 	for key := range clientMap {
-		fruitRecord := []fruititem.FruitItem{clientMap[key]}
+		item := clientMap[key]
+		routingKey := sum.routingKeyForFruit(key)
+		slog.Info("Sending partial sum", "clientId", clientId, "fruit", item.Fruit, "amount", item.Amount, "routingKey", routingKey)
+		fruitRecord := []fruititem.FruitItem{item}
 		message, err := inner.SerializeMessage(clientId, fruitRecord)
 		if err != nil {
 			slog.Debug("While serializing message", "err", err)
 			return err
 		}
-		routingKey := sum.routingKeyForFruit(key)
 		if err := sum.outputExchange.SendToKey(*message, routingKey); err != nil {
 			slog.Debug("While sending message", "err", err)
 			return err
@@ -186,6 +189,8 @@ func (sum *Sum) handleEvent() error {
 		num, _ := strconv.ParseUint(ammount, 10, 64) //@TO DO: Constants
 		sum.accumAmount.Add(client_id, num)
 		sum.accumAmount.CheckAndNotify(client_id)
+		slog.Debug("Event received", "clientId", client_id, "batch", num, "accumulated", sum.accumAmount.Get(client_id))
+		ack()
 	})
 	return nil
 }

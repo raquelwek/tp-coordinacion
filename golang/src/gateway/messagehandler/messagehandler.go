@@ -2,6 +2,7 @@ package messagehandler
 
 import (
 	"fmt"
+	"log/slog"
 	"sync/atomic"
 
 	"github.com/7574-sistemas-distribuidos/tp-coordinacion/common/fruititem"
@@ -17,7 +18,8 @@ type MessageHandler struct {
 }
 
 func NewMessageHandler() MessageHandler {
-	id := fmt.Sprintf("%d", clientCounter.Add(1))
+	id := fmt.Sprintf("%d", clientCounter.Load())
+	clientCounter.Add(1)
 	return MessageHandler{clientId: id}
 }
 
@@ -28,6 +30,7 @@ func (messageHandler *MessageHandler) SerializeDataMessage(fruitRecord fruititem
 }
 
 func (messageHandler *MessageHandler) SerializeEOFMessage() (*middleware.Message, error) {
+	slog.Info("Sending EOF", "clientId", messageHandler.clientId, "totalItemsSent", messageHandler.itemsSent)
 	return inner.SerializeEOFMessage(messageHandler.clientId, messageHandler.itemsSent)
 }
 

@@ -95,6 +95,11 @@ func (join *Join) handleEndOfRecordsMessage(clientId string) error {
 	finalTopSize := min(join.topSize, len(fruitItems))
 	delete(join.fruitItemMap, clientId)
 	top := fruitItems[:finalTopSize]
+
+	for _, item := range top {
+		slog.Info("Sending final top", "clientId", clientId, "fruit", item.Fruit, "amount", item.Amount)
+	}
+
 	msg, err := inner.SerializeMessage(clientId, top)
 
 	if err != nil {

@@ -112,6 +112,11 @@ func (aggregation *Aggregation) handleEndOfRecordsMessage(clientId string) error
 		go aggregation.handleUnicEof(clientId)
 	}
 	fruitTopRecords := aggregation.buildFruitTop(clientId)
+
+	for _, item := range fruitTopRecords {
+		slog.Info("Sending partial top", "clientId", clientId, "aggregationId", aggregation.id, "fruit", item.Fruit, "amount", item.Amount)
+	}
+
 	message, err := inner.SerializeMessage(clientId, fruitTopRecords)
 	if err != nil {
 		slog.Debug("While serializing top message", "err", err)
@@ -155,6 +160,7 @@ func (aggregation *Aggregation) buildFruitTop(clientId string) []fruititem.Fruit
 	delete(aggregation.fruitItemMap, clientId)
 	return fruitItems[:finalTopSize]
 }
+
 func (aggregation *Aggregation) handleEvent() {
 	aggregation.eventsExhcange.StartConsuming(func(msg middleware.Message, ack, nack func()) {
 		client_id := msg.Body
