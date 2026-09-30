@@ -113,31 +113,17 @@ En los Aggregators se calcula la cantidad total de frutas de un tipo específico
 
 En este componente se utilizan estas cantidades totales para calcular los tops parciales que luego serán utilizados por el Joiner para obtener el resultado final.
 
-### Problemática
+### Problemática: ¿Cuándo enviar el top parcial de  un agregator?
 
 En primer lugar, no se encontraba soportado el procesamiento de mensajes correspondientes a múltiples clientes, por lo que se agregó un mapeo por `client_id` y, dentro de este, por nombre de `fruit`. De esta manera, los datos de distintos clientes pueden procesarse concurrentemente sin mezclar sus resultados.
 
-Por otro lado, a diferencia del componente anterior, en este caso es necesario unificar los mensajes EOF para que el componente final (Joiner) reciba un único EOF por cliente. Para resolverlo, se utiliza un exchange compartido entre los Aggregators que permite notificar cuándo cada componente terminó de procesar un cliente.
+Para asegurarnos de haber recibido todas las sumas parciales, es necesario que en un Agregator se hayan recibido
+todas las sumas parciales de todos los sums; Esto lo podemos confirmar esperando reibir en un Agregator una cantidad de EOF´s igual a la cantidad de Sums, pues como cada uno envío su propio EOF nos aseguramos de que esta condición sea cierta.
 
-### Mensajes intercambiados
-
-Para que un único componente pueda enviar el EOF al Joiner, es necesario garantizar previamente que todos los Aggregators hayan enviado sus tops parciales correspondientes a ese cliente. De lo contrario, el Joiner podría recibir el EOF antes de haber recibido alguno de los resultados parciales.
-
-Para ello, una vez que un Aggregator recibe el EOF correspondiente a un `client_id`, calcula y envía su top parcial al Joiner. Luego de realizar este envío, notifica el evento mediante el exchange `agg_events`, utilizando un mensaje que contiene el `client_id`.
-
-Cada Aggregator mantiene un acumulador de estos eventos y contabiliza cuántos Aggregators terminaron de enviar su resultado parcial para cada cliente. Se utiliza como `target` la variable de entorno `AGGREGATION_AMOUNT`, que representa la cantidad total de Aggregators.
-
-### Coordinación de Aggregators
-
-El comportamiento esperado es que, una vez que un Aggregator recibe el EOF para un `client_id`, calcule y envíe su top parcial al Joiner y posteriormente notifique su finalización en el exchange compartido.
-
-Cuando el acumulador alcanza `AGGREGATION_AMOUNT`, se garantiza que todos los Aggregators ya enviaron su top parcial al Joiner. En ese momento, únicamente el Aggregator con `0` será el encargado de enviar el EOF correspondiente a ese `client_id` al Joiner.
-
-De esta manera, se garantiza que el Joiner reciba todos los tops parciales antes del EOF y que, además, reciba un único EOF por cliente.
-
+De esta forma, cada Agregator enviará su EOF sin necesidad de coordinarlos.
 
 ## Cálculo de tops de un cliente: resultado final
 Al igual que los componentes anteriorres, el procesamiento de múltiples clientes en forma concurrente no está soportado, con lo cual debemos distinguir por `client_id` los tops enviados como `fruits records`, para ello usamos la misma técinca de hashing aplicada en **Sum** y **Agreegator**.
-Una vez se recibe el EOF único de un `client_id ` específico desde los agregations, es posible calcular el top final, y enviarlo por la cola de resultados.
+Análogo al componente Agregator, espera recibir una cantidad de  EOF´s igual a la cantidad de Agregations para asegurarse haber recibido todos los tops parciales,luego es posible calcular el top final, y enviarlo por la cola de resultados.
 
-Es posible asegurar que luego el gateway enviará el mensaje al cliente correcto pues este caso se cubre en el `MessageHandler`, al intentar deserializar un mensaje que no es para el cliente se saltea el envío al cliente en el componente *Gateway*.
+Además, es posible asegurar que luego el gateway enviará el mensaje al cliente correcto pues este caso se cubre en el `MessageHandler`, al intentar deserializar un mensaje que no es para el cliente se saltea el envío al cliente en el componente *Gateway*.

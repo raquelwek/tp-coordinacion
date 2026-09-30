@@ -25,10 +25,12 @@ type JoinConfig struct {
 }
 
 type Join struct {
-	inputQueue   middleware.Middleware
-	outputQueue  middleware.Middleware
-	fruitItemMap map[string][]fruititem.FruitItem
-	topSize      int
+	inputQueue        middleware.Middleware
+	outputQueue       middleware.Middleware
+	fruitItemMap      map[string][]fruititem.FruitItem
+	topSize           int
+	aggregationAmount int
+	eofCount          map[string]int
 }
 
 func NewJoin(config JoinConfig) (*Join, error) {
@@ -46,10 +48,12 @@ func NewJoin(config JoinConfig) (*Join, error) {
 	}
 
 	return &Join{
-		inputQueue:   inputQueue,
-		outputQueue:  outputQueue,
-		fruitItemMap: map[string][]fruititem.FruitItem{},
-		topSize:      config.TopSize,
+		inputQueue:        inputQueue,
+		outputQueue:       outputQueue,
+		fruitItemMap:      map[string][]fruititem.FruitItem{},
+		topSize:           config.TopSize,
+		aggregationAmount: config.AggregationAmount,
+		eofCount:          map[string]int{},
 	}, nil
 }
 
@@ -78,8 +82,14 @@ func (join *Join) handleMessage(msg middleware.Message, ack func(), nack func())
 	}
 
 	if isEof {
-		if err := join.handleEndOfRecordsMessage(clientId); err != nil {
-			slog.Error("While handling end of record message", "err", err)
+		join.eofCount[clientId]++
+		received := join.eofCount[clientId]
+		slog.Info("EOF received", "clientId", clientId, "eofCount", received, "expected", join.aggregationAmount)
+		if received == join.aggregationAmount {
+			delete(join.eofCount, clientId)
+			if err := join.handleEndOfRecordsMessage(clientId); err != nil {
+				slog.Error("While handling end of record message", "err", err)
+			}
 		}
 		return
 	}
@@ -87,7 +97,6 @@ func (join *Join) handleMessage(msg middleware.Message, ack func(), nack func())
 }
 
 func (join *Join) handleEndOfRecordsMessage(clientId string) error {
-	slog.Info("Received End Of Records message", "clientId", clientId)
 	fruitItems := join.fruitItemMap[clientId]
 	sort.SliceStable(fruitItems, func(i, j int) bool {
 		return fruitItems[j].Less(fruitItems[i])
@@ -101,13 +110,25 @@ func (join *Join) handleEndOfRecordsMessage(clientId string) error {
 	}
 
 	msg, err := inner.SerializeMessage(clientId, top)
-
 	if err != nil {
 		return err
 	}
 	if err := join.outputQueue.Send(*msg); err != nil {
 		slog.Error("While sending top", "err", err)
+		return err
 	}
+
+	eofMsg, err := inner.SerializeEOFMessage(clientId, 0)
+	if err != nil {
+		slog.Debug("While serializing EOF message", "err", err)
+		return err
+	}
+	if err := join.outputQueue.Send(*eofMsg); err != nil {
+		slog.Debug("While sending EOF message", "err", err)
+		return err
+	}
+	slog.Info("Sent final top and EOF", "clientId", clientId)
+
 	return nil
 }
 
@@ -118,5 +139,4 @@ func (join *Join) handleParcialTop(clientId string, fruitRecords []fruititem.Fru
 	for _, fruitItem := range fruitRecords {
 		join.fruitItemMap[clientId] = append(join.fruitItemMap[clientId], fruitItem)
 	}
-
 }

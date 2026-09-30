@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 
 	a "github.com/7574-sistemas-distribuidos/tp-coordinacion/common/accumamount"
@@ -33,6 +34,7 @@ type Sum struct {
 	ammount        int
 	// fruitItemMap is keyed by clientId -> fruit -> FruitItem
 	fruitItemMap      map[string]map[string]fruititem.FruitItem
+	fruitItemMapMu    sync.Mutex
 	aggregationAmount int
 	aggregationPrefix string
 	accumAmount       a.AccumAmount
@@ -122,15 +124,16 @@ func (sum *Sum) handleMessage(msg middleware.Message, ack func(), nack func()) {
 	}
 }
 func (sum *Sum) sendParcialSums(clientId string) error {
+	sum.fruitItemMapMu.Lock()
 	clientMap, ok := sum.fruitItemMap[clientId]
 	if !ok {
 		clientMap = map[string]fruititem.FruitItem{}
 	}
-	// Copy the map entries so we can release the lock before sending over the network
 	items := make([]fruititem.FruitItem, 0, len(clientMap))
 	for _, item := range clientMap {
 		items = append(items, item)
 	}
+	sum.fruitItemMapMu.Unlock()
 
 	slog.Info("Sending partial sums", "clientId", clientId, "count", len(items))
 	// Log and send each fruit's partial sum to the aggregator that owns that fruit
@@ -164,11 +167,16 @@ func (sum *Sum) handleEndOfRecordMessage(clientId string) error {
 		return err
 	}
 
+	sum.fruitItemMapMu.Lock()
 	delete(sum.fruitItemMap, clientId)
+	sum.fruitItemMapMu.Unlock()
 	return nil
 }
 
 func (sum *Sum) handleDataMessage(clientId string, fruitRecords []fruititem.FruitItem) error {
+	sum.fruitItemMapMu.Lock()
+	defer sum.fruitItemMapMu.Unlock()
+
 	if _, ok := sum.fruitItemMap[clientId]; !ok {
 		sum.fruitItemMap[clientId] = map[string]fruititem.FruitItem{}
 	}
