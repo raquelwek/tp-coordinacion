@@ -31,16 +31,16 @@ Si pensamos aplicar una arquitectura de MapReduce teniendo en cuenta que habría
 Habría que decidir qué frutas van en cada agregator para que se calcule bien su cantidad total por cliente y asegurarnos que la distribución sea uniforme y determinística podemos decidir que
 en base al nombre de la fruta redireccionamos a qué agregator va imponiendo como routing key del exchange algo como `hash(nom_fruta) % AGREGATION_AMOUNT`.
 
-### ¿Cómo distinguir la data de clientes?
+###¿Cómo distinguir la data de clientes?
 *MessageHandler* no maneja el caso de devolver el top correspondiente en la función `DeserializeResultMessage`, es en ésta misma donde debemos devolver **nil**
 en caso de que un cliente use el handler que no le corresponde al intentar procesar un mensaje de la cola de output que no es el resultado de su top.
 Para este trabajo debemos utilizar una técnica de hashing para mapear las conexiones de los clientes con su id único.¿?
 
-### Manejo de EOF por clientes
+###Manejo de EOF por clientes
 Es importante notar que también debemos menejar el caso de manejar el EOF por cliente, para que se pueda ir avanzando con el cálculo de tops de forma concurrente. Por ejemplo en Sum habría que guardar las routing keys a las que le envío el cliente x y a cada una de ellas notificarle que ya no hay más data que procesar para ese cliente x; de esta forma, es seguro decir que todas las instancias de Sum recibieron todos los datos esperados del cliente x.
 
 
-### ¿Cómo coordinar los componentes?
+###¿Cómo coordinar los componentes?
 Se utilizará una cola adicional de tipo topic para difundir el EOF entre todas las instancias de Sum por ejemplo. Y para los Agregator difundir la terminación de todos y unificar un único EOF al joiner.
 
 # Estrategias aplicadas
@@ -48,10 +48,10 @@ Se utilizará una cola adicional de tipo topic para difundir el EOF entre todas 
 ## Idea general
 Se busca modificar el sistema para poder soportar clientes de forma concurrente en los componentes `Sum`, `Agregation` y `Join` sin modificar el resto de la arquitectura.
 
-### Componente `messageHandler`
+###Componente `messageHandler`
 Para poder distinguir entre clientes, es necesario  tener un identificador único, en este caso un número único. Además para determinar cuándo un cliente terminó de recibir todos los fruit items en total para todas las instancias de sum, agregamos un campo en el EOF con la cantidad de items enviados por ese cliente.
 
-### Componente `Sum`
+###Componente `Sum`
 Para lograr que cada componente de Sum notificque a los agregators  correspondientes que ya no recibirá más data para un cliente específico, es necesario hacer que los componentes de Sum reciban la notifciación del EOF que solamente un componente recibió, esta información se propagará por una cola con mensajes de control de manera que todas las instancias que no recibieron dicho mensaje queden notificadas y puedan enviar esta información al resto de compoenentes que pudieron no haberlo recibido. Esto último es necesario ya que los Sum deben enviar sus sumas parciales luego de este evento.
 
 # Implementación
@@ -95,7 +95,7 @@ Como el contador si se utilizará en dos hilos distintos debemos protegerlo con 
 
 NOTA: Que el el hash que lleva los conteos para los clientes se usa en dos hilos distintos, luego es necesario usar mutex sobre el mismo para evitar raceconditions.
 
-El resultado es, el primer Sum en recibir el EOF, evalúa si ya todos los componentes del mismo tipo han recibido la data esperada total para ese cliente, una vez confirmado cada componente envía sus sumas parciales y en posteriormente el EOF correspondiente a todos los agregators.
+El resultado es, el primer Sum en recibir el EOF, evalúa si ya todos los componentes del mismo tipo han recibido la data esperada total para ese cliente, una vez confirmado por el evento `client_id,"ALL_RECEIVED"` cada componente envía sus sumas parciales y en posteriormente el EOF correspondiente a todos los agregators.
 
 
 ##### Conteo de FruitItems enviados por cliente
