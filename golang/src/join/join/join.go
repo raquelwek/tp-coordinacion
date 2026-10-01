@@ -62,6 +62,9 @@ func (join *Join) Run() {
 	join.inputQueue.StartConsuming(func(msg middleware.Message, ack, nack func()) {
 		join.handleMessage(msg, ack, nack)
 	})
+	join.inputQueue.Close()
+	join.outputQueue.Close()
+
 }
 
 func (join *Join) handleSignals() {
@@ -69,8 +72,7 @@ func (join *Join) handleSignals() {
 	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
 	<-signals
 	slog.Info("SIGTERM signal received")
-	join.inputQueue.Close()
-	join.outputQueue.Close()
+	join.inputQueue.StopConsuming()
 }
 
 func (join *Join) handleMessage(msg middleware.Message, ack func(), nack func()) {

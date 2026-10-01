@@ -65,6 +65,8 @@ func (aggregation *Aggregation) Run() {
 	aggregation.inputExchange.StartConsuming(func(msg middleware.Message, ack, nack func()) {
 		aggregation.handleMessage(msg, ack, nack)
 	})
+	aggregation.inputExchange.Close()
+	aggregation.outputQueue.Close()
 }
 
 func (aggregation *Aggregation) handleSignals() {
@@ -72,8 +74,7 @@ func (aggregation *Aggregation) handleSignals() {
 	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
 	<-signals
 	slog.Info("SIGTERM signal received")
-	aggregation.inputExchange.Close()
-	aggregation.outputQueue.Close()
+	aggregation.inputExchange.StopConsuming()
 }
 
 func (aggregation *Aggregation) handleMessage(msg middleware.Message, ack func(), nack func()) {

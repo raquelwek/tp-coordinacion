@@ -123,5 +123,12 @@ Además, es posible asegurar que luego el gateway enviará el mensaje al cliente
 
 
 ## Graceful Shutdown
-Liberamos los bind hechos a las colas/exchanges usando `Close()` que internamente usa `StopConsuming()`, por lo cual si habían gorutinas
-consumiendo de estas, se cerrarán en consecuencia antes del hilo principal logrando un cierre limpio exitoso.
+Para el caso del componente sum, usamos WaitGroup para asegurarnos de
+que el hilo principal espere que terminanen los jobs corriendo en go rutinas; para ello,
+incrementamos el contador cada vez que se inicia una nueva gorutina. 
+Al recibir la señal de **sigterm** dejamos de consumir de las colas usadas y adicionalmente
+usamos un channel para notificar al hilo que espera que todos  los sums terminen de procesar la información de un cliente.
+Finalmente, cerramos todas los canales usados por las colas con `Close`.
+
+PAra el resto de componentes se aplica la misma lógica sin necesidad de `WaitGroup` pues es seguro que la gorutina
+de `handleSignals` termina luego de recibir la señal.

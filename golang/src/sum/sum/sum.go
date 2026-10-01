@@ -41,6 +41,8 @@ type Sum struct {
 	aggregationPrefix string
 	accumAmount       a.AccumAmount
 	eventsExhcange    middleware.Middleware
+	wg                sync.WaitGroup
+	done              chan struct{}
 }
 
 func NewSum(config SumConfig) (*Sum, error) {
@@ -72,15 +74,28 @@ func NewSum(config SumConfig) (*Sum, error) {
 		aggregationPrefix: config.AggregationPrefix,
 		accumAmount:       a.NewAccumAmount(),
 		eventsExhcange:    eventsExhcange,
+		done:              make(chan struct{}),
 	}, nil
 }
 
 func (sum *Sum) Run() {
 	go sum.handleSignals()
-	go sum.handleEvent()
+	sum.wg.Add(1)
+	go func() {
+		defer sum.wg.Done()
+
+		if err := sum.handleEvent(); err != nil {
+			slog.Error("While consuming events", "err", err)
+		}
+	}()
 	sum.inputQueue.StartConsuming(func(msg middleware.Message, ack, nack func()) {
 		sum.handleMessage(msg, ack, nack)
 	})
+	// after stopconsuming
+	sum.wg.Wait()
+	sum.inputQueue.Close()
+	sum.eventsExhcange.Close()
+	sum.outputExchange.Close()
 }
 
 func (sum *Sum) handleSignals() {
@@ -88,9 +103,9 @@ func (sum *Sum) handleSignals() {
 	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
 	<-signals
 	slog.Info("SIGTERM signal received")
-	sum.inputQueue.Close()
-	sum.outputExchange.Close()
-	sum.eventsExhcange.Close()
+	close(sum.done)
+	sum.inputQueue.StopConsuming()
+	sum.eventsExhcange.StopConsuming()
 
 }
 
@@ -112,8 +127,16 @@ func (sum *Sum) handleMessage(msg middleware.Message, ack func(), nack func()) {
 	if isEof {
 		slog.Info("EOF received, waiting for accumulator", "clientId", clientId, "targetAmount", targetAmmount)
 		ch := sum.accumAmount.WaitFor(clientId, targetAmmount)
+		sum.wg.Add(1)
 		go func() {
-			<-ch // wait until every instance has already finished
+			defer sum.wg.Done()
+			select {
+			case <-ch:
+				// wait until every instance has already finished
+			case <-sum.done:
+				return
+			}
+
 			msg := newMessage(clientId, ALL_RECEIVED_INDICATOR)
 			err := sum.eventsExhcange.Send(msg)
 			if err != nil {
