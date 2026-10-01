@@ -120,3 +120,8 @@ Al igual que los componentes anteriorres, el procesamiento de múltiples cliente
 Análogo al componente Agregator, espera recibir una cantidad de  EOF´s igual a la cantidad de Agregations para asegurarse haber recibido todos los tops parciales,luego es posible calcular el top final, y enviarlo por la cola de resultados.
 
 Además, es posible asegurar que luego el gateway enviará el mensaje al cliente correcto pues este caso se cubre en el `MessageHandler`, al intentar deserializar un mensaje que no es para el cliente se saltea el envío al cliente en el componente *Gateway*.
+
+
+## Graceful Shutdown
+Liberamos los bind hechos a las colas/exchanges usando `Close()` que internamente usa `StopConsuming()`, por lo cual si habían gorutinas
+consumiendo de estas, se cerrarán en consecuencia antes del hilo principal logrando un cierre limpio exitoso.

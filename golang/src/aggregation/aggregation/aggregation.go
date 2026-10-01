@@ -8,7 +8,6 @@ import (
 	"sort"
 	"syscall"
 
-	a "github.com/7574-sistemas-distribuidos/tp-coordinacion/common/accumamount"
 	"github.com/7574-sistemas-distribuidos/tp-coordinacion/common/fruititem"
 	"github.com/7574-sistemas-distribuidos/tp-coordinacion/common/messageprotocol/inner"
 	"github.com/7574-sistemas-distribuidos/tp-coordinacion/common/middleware"
@@ -27,16 +26,13 @@ type AggregationConfig struct {
 }
 
 type Aggregation struct {
-	id                int
-	outputQueue       middleware.Middleware
-	inputExchange     middleware.Middleware
-	fruitItemMap      map[string]map[string]fruititem.FruitItem
-	eofsReceived      map[string]int
-	topSize           int
-	accumAmount       a.AccumAmount
-	eventsExhcange    middleware.Middleware
-	AggregationAmount int
-	sumAmount         int
+	id            int
+	outputQueue   middleware.Middleware
+	inputExchange middleware.Middleware
+	fruitItemMap  map[string]map[string]fruititem.FruitItem
+	eofsReceived  map[string]int
+	topSize       int
+	sumAmount     int
 }
 
 func NewAggregation(config AggregationConfig) (*Aggregation, error) {
@@ -48,7 +44,6 @@ func NewAggregation(config AggregationConfig) (*Aggregation, error) {
 	}
 	inputExchangeRoutingKey := []string{fmt.Sprintf("%s_%d", config.AggregationPrefix, config.Id)}
 	inputExchange, err := middleware.CreateExchangeMiddleware(config.AggregationPrefix, inputExchangeRoutingKey, connSettings)
-	//eventsExhcange, err2 := middleware.CreateExchangeMiddleware("agg_events", []string{"#"}, connSettings)
 
 	if err != nil {
 		outputQueue.Close()
@@ -61,10 +56,7 @@ func NewAggregation(config AggregationConfig) (*Aggregation, error) {
 		fruitItemMap:  map[string]map[string]fruititem.FruitItem{},
 		eofsReceived:  map[string]int{},
 		topSize:       config.TopSize,
-		//accumAmount:   a.NewAccumAmount(),
-		//eventsExhcange:    eventsExhcange,
-		AggregationAmount: config.AggregationAmount,
-		sumAmount:         config.SumAmount,
+		sumAmount:     config.SumAmount,
 	}, nil
 }
 
@@ -80,8 +72,8 @@ func (aggregation *Aggregation) handleSignals() {
 	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
 	<-signals
 	slog.Info("SIGTERM signal received")
-	aggregation.inputExchange.StopConsuming()
-	//aggregation.eventsExhcange.StopConsuming()
+	aggregation.inputExchange.Close()
+	aggregation.outputQueue.Close()
 }
 
 func (aggregation *Aggregation) handleMessage(msg middleware.Message, ack func(), nack func()) {

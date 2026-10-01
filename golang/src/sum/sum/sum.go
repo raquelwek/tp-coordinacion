@@ -17,6 +17,8 @@ import (
 	"github.com/7574-sistemas-distribuidos/tp-coordinacion/common/middleware"
 )
 
+const ALL_RECEIVED_INDICATOR = "ALL_RECEIVED"
+
 type SumConfig struct {
 	Id                int
 	MomHost           string
@@ -86,7 +88,10 @@ func (sum *Sum) handleSignals() {
 	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
 	<-signals
 	slog.Info("SIGTERM signal received")
-	sum.inputQueue.StopConsuming()
+	sum.inputQueue.Close()
+	sum.outputExchange.Close()
+	sum.eventsExhcange.Close()
+
 }
 
 func (sum *Sum) routingKeyForFruit(fruit string) string {
@@ -104,17 +109,19 @@ func (sum *Sum) handleMessage(msg middleware.Message, ack func(), nack func()) {
 		return
 	}
 
-	if isEof { // wait until every instance has already finished
+	if isEof {
 		slog.Info("EOF received, waiting for accumulator", "clientId", clientId, "targetAmount", targetAmmount)
 		ch := sum.accumAmount.WaitFor(clientId, targetAmmount)
 		go func() {
-			<-ch
-			body := fmt.Sprintf("%s,ALL_RECEIVED", clientId)
-			msg := middleware.Message{Body: body}
-			sum.eventsExhcange.Send(msg)
+			<-ch // wait until every instance has already finished
+			msg := newMessage(clientId, ALL_RECEIVED_INDICATOR)
+			err := sum.eventsExhcange.Send(msg)
+			if err != nil {
+				slog.Error("While sending ALL_RECEIVED event", "err", err)
+				return
+			}
 			ack()
 		}()
-		// No ack here: the goroutine owns the ack for this message
 		return
 	}
 
@@ -136,7 +143,7 @@ func (sum *Sum) sendParcialSums(clientId string) error {
 	sum.fruitItemMapMu.Unlock()
 
 	slog.Info("Sending partial sums", "clientId", clientId, "count", len(items))
-	// Log and send each fruit's partial sum to the aggregator that owns that fruit
+
 	for _, item := range items {
 		routingKey := sum.routingKeyForFruit(item.Fruit)
 		slog.Info("Sending partial sum", "clientId", clientId, "fruit", item.Fruit, "amount", item.Amount, "routingKey", routingKey)
@@ -189,8 +196,8 @@ func (sum *Sum) handleDataMessage(clientId string, fruitRecords []fruititem.Frui
 			clientMap[fruitRecord.Fruit] = fruitRecord
 		}
 	}
-	body := fmt.Sprintf("%s,%d", clientId, len(fruitRecords))
-	msg := middleware.Message{Body: body}
+	value := fmt.Sprintf("%d", len(fruitRecords))
+	msg := newMessage(clientId, value)
 	sum.eventsExhcange.Send(msg)
 	return nil
 }
@@ -200,11 +207,11 @@ func (sum *Sum) handleEvent() error {
 		values := strings.Split(msg.Body, ",")
 		client_id, value := values[0], values[1]
 		switch value {
-		case "ALL_RECEIVED":
+		case ALL_RECEIVED_INDICATOR:
 			sum.sendParcialSums(client_id)
 			sum.handleEndOfRecordMessage(client_id)
 		default:
-			num, _ := strconv.ParseUint(value, 10, 64) //@TO DO: Constants
+			num, _ := strconv.ParseUint(value, 10, 64) //parse to number in 10 base, in uint 64 format
 			sum.accumAmount.Add(client_id, num)
 			sum.accumAmount.CheckAndNotify(client_id)
 		}
@@ -212,4 +219,9 @@ func (sum *Sum) handleEvent() error {
 		ack()
 	})
 	return err
+}
+
+func newMessage(clientId string, value string) middleware.Message {
+	body := fmt.Sprintf("%s,%s", clientId, value)
+	return middleware.Message{Body: body}
 }
